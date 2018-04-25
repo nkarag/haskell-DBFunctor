@@ -1,0 +1,67 @@
+name:                DBFunctor
+version:             0.1.0.0
+github:              "nkarag/DBFunctor"
+license:             BSD3
+author:              "Nikos Karagiannidis"
+maintainer:          "nkarag@gmail.com"
+copyright:           "2018 Nikos Karagiannidis"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on Github at <https://github.com/githubuser/DBFunctor#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+#  --bytestring-0.10.8.1 -- Data.ByteString  https://www.stackage.org/haddock/lts-7.4/bytestring-0.10.8.1/Data-ByteString.html
+- bytestring
+#  --containers-0.5.7.1  -- Data.Map.Strict  https://www.stackage.org/haddock/lts-7.4/containers-0.5.7.1/Data-Map-Strict.html
+- containers  
+# -- https://hackage.haskell.org/package/unordered-containers-0.2.7.2/docs/Data-HashMap-Strict.html  
+- unordered-containers  
+#  -- https://github.com/hvr/cassava  --  https://www.stackage.org/lts-7.15/package/cassava-0.4.5.1
+- cassava
+- vector
+- text
+#  -- https://hackage.haskell.org/package/cereal
+- cereal
+#  -- Data.Either.Combinators (https://hackage.haskell.org/package/either-4.4.1.1/docs/Data-Either-Combinators.html)
+- either
+#  -- transformers-0.5.5.0   - https://hackage.haskell.org/package/transformers-0.5.5.0/docs/Control-Monad-Trans-Writer-Strict.html
+- transformers
+
+
+library:
+  source-dirs: src
+
+executables:
+  dbfunctor-example:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    dependencies:
+    - DBFunctor
+
+tests:
+  dbfunctor-test:
+    main:                DBFTests.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    dependencies:
+    - DBFunctor
