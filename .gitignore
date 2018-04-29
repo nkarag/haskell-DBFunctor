@@ -1,0 +1,10 @@
+.stack-work/
+DBFunctor.cabal
+readings/
+misc/
+*~
+todo.txt
+DBFunctor.hidecabal
+doc/star_schema.pptx
+test/data/usefull_material.docx
+app/test-data.sql

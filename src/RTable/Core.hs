@@ -85,6 +85,7 @@ module RTable.Core
         , (<!>)
         ,headRTup
         ,upsertRTuple
+        ,toText
         ,rTimeStampToRText
         ,stdTimestampFormat
         ,stdDateFormat
@@ -714,6 +715,13 @@ createRTimeStamp fmt timeVal =
                                                                                                 }
 
         parseTime _ = RTimestampVal {year = 2999, month = 12, day = 31, hours24 = 11, minutes = 59, seconds = 59}
+
+
+-- | Return the Text out of an RDataType
+-- If a non-text RDataType is given then Nothing is returned.
+toText :: RDataType -> Maybe T.Text
+toText (RText t) = Just t
+toText _ = Nothing
 
 -- | Standard timestamp format
 stdTimestampFormat = "DD/MM/YYYY HH24:MI:SS"
