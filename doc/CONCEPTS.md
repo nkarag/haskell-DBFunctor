@@ -308,7 +308,6 @@ takeNamedResult "myResult" etlXpression == EtlMapStart
 ```
 In order, to use it at a later stage in the original Julius expression (etlXpression), so we dont have to repeat redundantly the whole prefix expression.
 
------------
-(*) hCSVDB is still work in progress.
+
 
 > Written with [StackEdit](https://stackedit.io/).
