@@ -1,23 +1,5 @@
 ﻿**DBFunctor - Concepts**
 =============
-
-Main Features*
----------
- - Enables **Functional Data Management** by exposing all relational algebra operations, as well as the "**ETL Mapping**" concept (common to all ETL tools) as Haskell functions and data types.
- - Easy manipulation of your CSV files. Create any type of data transformation flows for your CSV files with ease, in the functional way haskellers love.
- - No DB-specific storage (that is why we call it a "thin" database layer). CSV files stay as-is on your disk.
- - Relational Table abstraction over CSV files.
- - Relational Algebra operations over CSV files (select, project, (inner/outer)join, set operations, aggregations, group by etc.)  -  exposed as haskell functions.
- - Perform ETL (Extract Transform Load) over your CSV files via the ETL Mapping concept, which is exposed as a Haskell data type. 
- - **Any data transformation**, no matter how complex it is, can be easily implemented through this ETL Mapping data type.
- - **Embedded Domain Specific Language (EDSL) Julius** for ETL, expressing complex data transformation flows (i.e., an arbitrary combination of relational operations and Column Mappings) in a more friendly manner.
- - SQL interface over CSV files. SQL dialect enhanced with a "functional flavor".
- - REPL with available ETL operations and Relational Algebra Operators and support for SQL queries.
- - Lazy evaluation of data pipelines and data transformations.
- - Composition of ETL operations and Relational Algebra operations becomes trivial via function composition, or through the Julius E-DSL.
- - Parallel processing of large CSV files.
- - Notebook style GUI (e.g., like Apache Zeppelin) over CSV files, implemented in Purescript.
-
 The Main Idea
 ---------
 
