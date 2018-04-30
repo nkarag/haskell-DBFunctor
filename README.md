@@ -238,13 +238,17 @@ main = do
                     genRTupleFormat ["OWNER", "TABLE_NAME"] genDefaultColFormatMap
                  ) $ tabs_with_B
 ```
-### An ETL Example: Create a simple Star-Schema over CSV files
+### An ETL Example: Create a simple Star-Schema over CSV files (in progress)
 In this more comprehensive example, we will show how we can create a simple Star-Schema from a CSV file, which plays the role of our data source. I.e., we will implement a very simple ETL flow with the Julius EDSL. [read more
 ](https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/ETL-EXAMPLE.md).
 ### Concepts
 https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/CONCEPTS.md
-### Julius Tutorial
+### Julius Tutorial (in progress)
 https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md
+### How to run
+Download or clone DBFunctor in a new directory, then run `stack build`
+with the [stack](https://docs.haskellstack.org/en/stable/README/) tool.
+In order, to use it in you own haskell app, include it in your stack.yaml file, as a local package that you want to link your code to. (Soon DBFunctor will be added to Hackage and you will not need to use it as a local package.) 
 
 
 
