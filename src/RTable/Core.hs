@@ -35,7 +35,8 @@ commentary with @some markup@.
 module RTable.Core
     ( 
        -- Relation(..)
-        RTable (..)
+        RTabular (..)
+        ,RTable (..)
         ,RTuple (..)
         ,RTupleFormat (..)
         ,ColFormatMap
@@ -229,6 +230,19 @@ data Relation
     |  EmptyRel -- ^ An empty relation
     deriving Show
 --}
+
+
+-- * ########## Type Classes ##############
+
+-- | Basic class to represent a data type that can be turned into an RTable.
+-- It implements the concept of "tabular data" 
+class RTabular a where 
+    
+    toRTable :: RTableMData -> a -> RTable
+    
+    fromRTable :: RTableMData -> RTable -> a
+    
+    {-# MINIMAL toRTable, fromRTable #-}
 
 -- * ########## Data Types ##############
 

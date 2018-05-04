@@ -71,9 +71,9 @@ main = do
                                         []  -- primary key
                                         []  -- list of unique keys
         -- *** test CSV to RTable conversion                                        
-        rtab = C.csvToRTable rtmdata csv
+        rtab = C.toRTable rtmdata csv
         rtabNew = T.restrictNrows (read n) rtab
-        csvNew = C.rtableToCSV rtmdata rtabNew   
+        csvNew = C.fromRTable rtmdata rtabNew   
 
         -- *** test RFilter & RProjection operation
         rtabNew2 =  let
@@ -92,7 +92,7 @@ main = do
                                       ) 
                                         []  -- primary key
                                         []  -- list of unique keys
-        csvNew2 = C.rtableToCSV rtmdata2 rtabNew2  
+        csvNew2 = C.fromRTable rtmdata2 rtabNew2  
 
         -- Test Julius
         rtabNew2_J = E.etl $ evalJulius $
@@ -114,7 +114,7 @@ main = do
                     :. ROpEmpty)
             :-> EtlMapEmpty
 -}
-        csvNew2_J = C.rtableToCSV rtmdata2 rtabNew2_J  
+        csvNew2_J = C.fromRTable rtmdata2 rtabNew2_J  
 
 
     --print / write to file
@@ -168,7 +168,7 @@ main = do
     T.printRTable rtabNew3_J
 
     --     foName3 = (fromJust (stripSuffix ".csv"  (pack fo))) `mappend` "_t3.csv"
-    --     csvNew3 = C.rtableToCSV rtmdata3 rtabNew3
+    --     csvNew3 = C.fromRTable rtmdata3 rtabNew3
     -- C.writeCSV (unpack foName3) csvNew3            
     -- C.printCSV csvNew3
 
@@ -536,7 +536,7 @@ main = do
                 myfunc = (T.removeColumn "NewNewNumber") . (T.removeColumn "MyDate")
 
 
-    writeResult fo "_t12.csv" rtmdata12 rtabNew12 -- this calls internally C.rtableToCSV and thus it cannot actually test the column removal (because the column removal is hidden
+    writeResult fo "_t12.csv" rtmdata12 rtabNew12 -- this calls internally C.fromRTable and thus it cannot actually test the column removal (because the column removal is hidden
                                                   -- by the RTable metadata). An explicit print of the new RTable is required in order to check correctness.
 
     writeResult fo "_t12_J.csv" rtmdata12 rtabNew12_J                                                  
@@ -853,7 +853,7 @@ writeResult ::
     -> IO()
 writeResult fname sfx md rt = do
     let foNameNew = (fromJust (stripSuffix ".csv"  (pack fname))) `mappend` sfx
-        csvNew = C.rtableToCSV md rt
+        csvNew = C.fromRTable md rt
     C.writeCSV (unpack foNameNew) csvNew            
     C.printCSV csvNew
 

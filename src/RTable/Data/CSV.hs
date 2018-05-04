@@ -29,7 +29,8 @@ Needs the following ghc option to compile from Cygwin (default is 100) :
 
 module RTable.Data.CSV
    (
-        CSV 
+        CSV
+        --,MyType (..) 
         ,Row
         ,Column                 
         ,readCSV
@@ -41,11 +42,13 @@ module RTable.Data.CSV
         ,printCSVFile
         ,copyCSV
         ,selectNrows
-        ,csvToRTable
-        ,rtableToCSV
+        --,csvToRTable
+        --,rtableToCSV
     -- export the following only for debugging purposes via GHCI    
         --,csv2rtable        
         --,rtable2csv
+        ,toRTable
+        ,fromRTable
         ,csvHeaderFromRtable
         ,projectByIndex
         ,headCSV
@@ -157,6 +160,12 @@ main = do
 -- ##################################################
 -- *  Data Types
 -- ##################################################
+
+{-data MyType = MyType Int
+
+instance RTabular MyType where
+    toRTable md t = emptyRTable
+    fromRTable mf rt = MyType (5::Int)-}
 
 -- | Definition of a CSV file
 -- Treating CSV data as opaque byte strings 
@@ -302,6 +311,10 @@ copyCSV ::
 copyCSV fi fo = do
     csv <- readCSV fi
     writeCSV fo csv 
+
+instance RTabular CSV where
+    toRTable = csvToRTable
+    fromRTable = rtableToCSV
 
 -- ##################################################
 -- *  CSV to RTable integration

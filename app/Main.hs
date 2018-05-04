@@ -1,10 +1,10 @@
 module Main where
 
 import  RTable.Core         (RTableMData ,ColumnDType (..) ,createRTableMData, restrictNrows, printfRTable, genRTupleFormat, genDefaultColFormatMap, toText, (<!>))
-import  RTable.Data.CSV     (CSV, readCSV, writeCSV, csvToRTable, rtableToCSV)
+import  RTable.Data.CSV     (CSV, readCSV, writeCSV, toRTable) -- MyType (..) )
 import  Etl.Julius          
 
-import Data.Text            (take, pack)
+import Data.Text            (take, pack) 
 import Data.Maybe           (fromJust)
 
 
@@ -32,12 +32,14 @@ src_DBTab_MData =
 
 main :: IO ()
 main = do
-    -- read source file
+    -- read source csv file
     srcCSV <- readCSV "./app/test-data.csv"
 
     let 
-        -- create source RTable 
-        src_DBTab = csvToRTable src_DBTab_MData srcCSV      
+        --t = toRTable src_DBTab_MData (MyType (4::Int))
+        
+        -- create source RTable from source csv 
+        src_DBTab = toRTable src_DBTab_MData srcCSV      
         -- get only the first 100 rows
         src_DBTab_10rows = restrictNrows 10 src_DBTab
         -- select all tables starting with a B
