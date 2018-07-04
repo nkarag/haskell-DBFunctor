@@ -1,15 +1,256 @@
 {-|
 Module      : RTable
-Description : Implements the relational Table concept. Defines all necessary data types like RTable and RTuple and basic relational algebra operations on RTables.
-Copyright   : (c) Nikos Karagiannidis, 2017
+Description : Implements the relational Table concept. Defines all necessary data types like RTable and RTuple as well as basic relational algebra operations on RTables.
+Copyright   : (c) Nikos Karagiannidis, 2018
                   
 License     : GPL-3
 Maintainer  : nkarag@gmail.com
-Stability   : experimental
+Stability   : stable
 Portability : POSIX
 
-Here is a longer description of this module, containing some
-commentary with @some markup@.
+
+This is the core module that implements the relational Table concept with the 'RTable' data type. 
+It defines all necessary data types like 'RTable' and 'RTuple' as well as all the basic relational algebra operations (selection -i.e., filter-
+, projection, inner/outer join, aggregation, grouping etc.) on 'RTable's.
+
+
+= When to use this module
+This module should be used whenever one has "tabular data" (e.g., some CSV files, or any type of data that can be an instance of the 'RTabular'
+type class and thus define the 'toRTable' function) and wants to analyze them in-memory with the well-known relational algebra operations 
+(selection, projection, join, groupby, aggregations etc) that lie behind SQL. 
+This data analysis takes place within your haskell code, without the need to import the data into a database (database-less 
+data processing) and the result can be turned into the original format (e.g., CSV) with a simple call to the 'fromRTable' function.
+
+"RTable.Core" gives you an interface for all common relational algebra operations, which are expressed as functions over
+the basic 'RTable' data type. Of course, since each relational algebra operation is a function that returns a new RTable (immutability), one
+can compose these operations and thus express an arbitrary complex query. Immutability also holds for DML operations also (e.g., 'updateRTab'). This
+means that any update on an RTable operates like a @CREATE AS SELECT@ statement in SQL, creating a new 'RTable' and not modifying an existing one.
+
+Note that the recommended method in order to perform data analysis via relational algebra operations is to use the __Embedded Domain Specific Language__
+__(EDSL) Julius__, defined in module "Etl.Julius", which exports the "RTable.Core" module. This provides a standard way of expressing queries and is 
+simpler for expressing more complex queries (with many relational algebra operations). Moreover it supports intermediate results (i.e., subqueries). Finally, 
+if you need to implement some __ETL/ELT data flows__, that will use the relational operations defined in "RTable.Core" to analyze data but also
+to combine them with various __Column Mappings__ ('RColMapping'), in order to achieve various data transformations, then Julius is the appropriate tool for this job.
+
+See this [Julius Tutorial] (https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md)
+
+= Overview
+An 'RTable' is logically a container of 'RTuple's (similar to the concept of a Relation being a set of Tuples) and is the core data type in this 
+module. The 'RTuple' is a map of (Column-Name, Column-Value) pairs. A Column-Name is modeled with the 'ColumnName' data type, while the 
+Column-Value is modelled with the 'RDataType', which is a wrapper over the most common data types that one would expect to find in a column 
+of a Table (e.g., integers, rational numbers, strings, dates etc.).
+
+We said that the 'RTable' is a container of 'RTuple's and thus the 'RTable' is a 'Monad'! So one can write monadic code to implement RTable operations. For example:
+
+ @
+    -- | Return an new RTable after modifying each RTuple of the input RTable.
+    myRTableOperation :: RTable -> RTable
+    myRTableOperation rtab = do
+            rtup <- rtab
+            let new_rtup = doStuff rtup
+            return new_rtup
+        where
+            doStuff :: RTuple -> RTuple
+            doStuff = ...  -- to be defined
+ @
+
+Many different types of data can be turned into an 'RTable'. For example, CSV data can be easily turn into an 'RTable' via the 'toRTable' function. Many other types of data
+could be represented as "tabular data" via the 'RTable' data type, as long as they adhere to the interface posed by the 'RTabular' type class. In other words, any data type
+that we want to convert into an RTable and vice-versa, must become an instance of the 'RTabular' type class and thus define the basic 'toRTable'
+and 'fromRTable' functions.
+
+== An Example
+In this example we read a CSV file with the use of the 'readCSV' function from the "RTable.Data.CSV" module. Then, with the use of the 'toRTable' function, implemented in the
+'RTabular' instance of the 'CSV' data type, we convert the CSV file into an 'RTable'. The data of the CSV file consist of metadata from an imaginary Oracle database and each 
+row represents an entry for a table stored in this database, with information (i.e., columns) pertaining to the owner of the table, the tablespace name, the status of the table 
+and various statistics, such as the number of rows and number of blocks.
+
+In this example, we apply three \"transformations\" to the input data and we print the result after each one, with the use of the 'printfRTable' function. The transfomrations
+are: 
+
+1. a 'limit' operation, where we return the first N number of 'RTuple's, 
+2. an 'RFilter' operation that returns only the tables that start with a \'B\', followed by a projection operation ('RPrj')
+3. an inner-join ('RInJoin'), where we pair the 'RTuple's from the previous results based on a join predicate ('RJoinPredicate'): the tables that have been analyzed the same day
+
+Finally, we store the results of the 2nd operation into a new CSV file, with the use of the 'fromRTable' function implemented for the 'RTabular' instance of the 'CSV' data type.
+
+@
+{-# LANGUAGE OverloadedStrings #-}
+
+import  RTable.Core
+import  RTable.Data.CSV     (CSV, readCSV, toRTable)
+import  Data.Text as T          (take, pack)
+
+-- This is the input source table metadata
+src_DBTab_MData :: RTableMData
+src_DBTab_MData = 
+    createRTableMData   (   \"sourceTab\"  -- table name
+                            ,[  (\"OWNER\", Varchar)                                      -- Owner of the table
+                                ,(\"TABLE_NAME\", Varchar)                                -- Name of the table
+                                ,(\"TABLESPACE_NAME\", Varchar)                           -- Tablespace name
+                                ,(\"STATUS\",Varchar)                                     -- Status of the table object (VALID/IVALID)
+                                ,(\"NUM_ROWS\", Integer)                                  -- Number of rows in the table
+                                ,(\"BLOCKS\", Integer)                                    -- Number of Blocks allocated for this table
+                                ,(\"LAST_ANALYZED\", Timestamp "MM/DD/YYYY HH24:MI:SS")   -- Timestamp of the last time the table was analyzed (i.e., gathered statistics) 
+                            ]
+                        )
+                        [\"OWNER\", \"TABLE_NAME\"] -- primary key
+                        [] -- (alternative) unique keys
+
+
+-- Result RTable metadata
+result_tab_MData :: RTableMData
+result_tab_MData = 
+    createRTableMData   (   \"resultTab\"  -- table name
+                            ,[  (\"OWNER\", Varchar)                                        -- Owner of the table
+                                ,(\"TABLE_NAME\", Varchar)                                  -- Name of the table
+                                ,(\"LAST_ANALYZED\", Timestamp \"MM/DD/YYYY HH24:MI:SS\")   -- Timestamp of the last time the table was analyzed (i.e., gathered statistics) 
+                            ]
+                        )
+                        [\"OWNER\", \"TABLE_NAME\"] -- primary key
+                        [] -- (alternative) unique keys
+
+
+main :: IO()
+main = do
+     -- read source csv file
+    srcCSV <- readCSV ".\/app\/test-data.csv"
+
+    putStrLn "\\nHow many rows you want to print from the source table? :\\n"
+    n <- readLn :: IO Int    
+    
+    -- RTable A
+    printfRTable (  -- define the order by which the columns will appear on screen. Use the default column formatting.
+                    genRTupleFormat [\"OWNER\", \"TABLE_NAME\", \"TABLESPACE_NAME\", \"STATUS\", \"NUM_ROWS\", \"BLOCKS\", \"LAST_ANALYZED\"] genDefaultColFormatMap) $ 
+                        limit n $ toRTable src_DBTab_MData srcCSV 
+
+    putStrLn "\\nThese are the tables that start with a \"B\":\\n"    
+    
+    -- RTable B
+    printfRTable ( genRTupleFormat [\"OWNER\", \"TABLE_NAME\",\"LAST_ANALYZED\"] genDefaultColFormatMap) $ 
+        tabs_start_with_B $ toRTable src_DBTab_MData srcCSV 
+    
+    putStrLn "\\nThese are the tables that were analyzed the same day:\\n"    
+    
+    -- RTable C = A InnerJoin B
+    printfRTable ( genRTupleFormat [\"OWNER\", \"TABLE_NAME\", \"LAST_ANALYZED\", \"OWNER_1\", \"TABLE_NAME_1\", \"LAST_ANALYZED_1\"] genDefaultColFormatMap) $ 
+        ropB  myJoin
+                    (limit n $ toRTable src_DBTab_MData srcCSV) 
+                    (tabs_start_with_B $ toRTable src_DBTab_MData srcCSV)
+
+    -- save result of 2nd operation to CSV file
+    writeCSV "./app/result-data.csv" $ 
+                    fromRTable result_tab_MData $ 
+                        tabs_start_with_B $ 
+                            toRTable src_DBTab_MData srcCSV 
+
+    where
+        -- Return RTuples with a table_name starting with a 'B'
+        tabs_start_with_B :: RTable -> RTable
+        tabs_start_with_B rtab = (ropU myProjection) . (ropU myFilter) $ rtab
+            where
+                -- Create a Filter Operation to return only RTuples with table_name starting with a 'B'
+                myFilter = RFilter (    \t ->   let 
+                                                    tbname = case toText (t \<!\> \"TABLE_NAME\") of
+                                                                Just t -> t
+                                                                Nothing -> pack \"\"
+                                                in (T.take 1 tbname) == (pack \"B\")
+                                    )
+                -- Create a Projection Operation that projects only two columns
+                myProjection = RPrj [\"OWNER\", \"TABLE_NAME\", \"LAST_ANALYZED\"]
+
+        -- Create an Inner Join for tables analyzed in the same day
+        myJoin :: ROperation
+        myJoin = RInJoin (  \t1 t2 -> 
+                                let
+                                    RTime {rtime = RTimestampVal {year = y1, month = m1, day = d1, hours24 = hh1, minutes = mm1, seconds = ss1}} = t1\<!\>\"LAST_ANALYZED\"
+                                    RTime {rtime = RTimestampVal {year = y2, month = m2, day = d2, hours24 = hh2, minutes = mm2, seconds = ss2}} = t2\<!\>\"LAST_ANALYZED\"
+                                in y1 == y2 && m1 == m2 && d1 == d2
+                        )
+@
+
+And here is the output:
+
+@
+:l ./src/RTable/example.hs
+:set -XOverloadedStrings
+main
+@
+
+@
+How many rows you want to print from the source table? :
+
+10
+---------------------------------------------------------------------------------------------------------------------------------
+OWNER           TABLE_NAME                        TABLESPACE_NAME     STATUS     NUM_ROWS     BLOCKS     LAST_ANALYZED
+~~~~~           ~~~~~~~~~~                        ~~~~~~~~~~~~~~~     ~~~~~~     ~~~~~~~~     ~~~~~~     ~~~~~~~~~~~~~
+APEX_030200     SYS_IOT_OVER_71833                SYSAUX              VALID      0            0          06/08/2012 16:22:36
+APEX_030200     WWV_COLUMN_EXCEPTIONS             SYSAUX              VALID      3            3          06/08/2012 16:22:33
+APEX_030200     WWV_FLOWS                         SYSAUX              VALID      10           3          06/08/2012 22:01:21
+APEX_030200     WWV_FLOWS_RESERVED                SYSAUX              VALID      0            0          06/08/2012 16:22:33
+APEX_030200     WWV_FLOW_ACTIVITY_LOG1$           SYSAUX              VALID      1            29         07/20/2012 19:07:57
+APEX_030200     WWV_FLOW_ACTIVITY_LOG2$           SYSAUX              VALID      14           29         07/20/2012 19:07:57
+APEX_030200     WWV_FLOW_ACTIVITY_LOG_NUMBER$     SYSAUX              VALID      1            3          07/20/2012 19:08:00
+APEX_030200     WWV_FLOW_ALTERNATE_CONFIG         SYSAUX              VALID      0            0          06/08/2012 16:22:33
+APEX_030200     WWV_FLOW_ALT_CONFIG_DETAIL        SYSAUX              VALID      0            0          06/08/2012 16:22:33
+APEX_030200     WWV_FLOW_ALT_CONFIG_PICK          SYSAUX              VALID      37           3          06/08/2012 16:22:33
+
+
+10 rows returned
+---------------------------------------------------------------------------------------------------------------------------------
+
+These are the tables that start with a "B":
+
+-------------------------------------------------------------
+OWNER      TABLE_NAME                LAST_ANALYZED
+~~~~~      ~~~~~~~~~~                ~~~~~~~~~~~~~
+DBSNMP     BSLN_BASELINES            04/15/2018 16:14:51
+DBSNMP     BSLN_METRIC_DEFAULTS      06/08/2012 16:06:41
+DBSNMP     BSLN_STATISTICS           04/15/2018 17:41:33
+DBSNMP     BSLN_THRESHOLD_PARAMS     06/08/2012 16:06:41
+SYS        BOOTSTRAP$                04/14/2014 13:53:43
+
+
+5 rows returned
+-------------------------------------------------------------
+
+These are the tables that were analyzed the same day:
+
+-------------------------------------------------------------------------------------------------------------------------------------
+OWNER           TABLE_NAME                     LAST_ANALYZED           OWNER_1     TABLE_NAME_1              LAST_ANALYZED_1
+~~~~~           ~~~~~~~~~~                     ~~~~~~~~~~~~~           ~~~~~~~     ~~~~~~~~~~~~              ~~~~~~~~~~~~~~~
+APEX_030200     SYS_IOT_OVER_71833             06/08/2012 16:22:36     DBSNMP      BSLN_THRESHOLD_PARAMS     06/08/2012 16:06:41
+APEX_030200     SYS_IOT_OVER_71833             06/08/2012 16:22:36     DBSNMP      BSLN_METRIC_DEFAULTS      06/08/2012 16:06:41
+APEX_030200     WWV_COLUMN_EXCEPTIONS          06/08/2012 16:22:33     DBSNMP      BSLN_THRESHOLD_PARAMS     06/08/2012 16:06:41
+APEX_030200     WWV_COLUMN_EXCEPTIONS          06/08/2012 16:22:33     DBSNMP      BSLN_METRIC_DEFAULTS      06/08/2012 16:06:41
+APEX_030200     WWV_FLOWS                      06/08/2012 22:01:21     DBSNMP      BSLN_THRESHOLD_PARAMS     06/08/2012 16:06:41
+APEX_030200     WWV_FLOWS                      06/08/2012 22:01:21     DBSNMP      BSLN_METRIC_DEFAULTS      06/08/2012 16:06:41
+APEX_030200     WWV_FLOWS_RESERVED             06/08/2012 16:22:33     DBSNMP      BSLN_THRESHOLD_PARAMS     06/08/2012 16:06:41
+APEX_030200     WWV_FLOWS_RESERVED             06/08/2012 16:22:33     DBSNMP      BSLN_METRIC_DEFAULTS      06/08/2012 16:06:41
+APEX_030200     WWV_FLOW_ALTERNATE_CONFIG      06/08/2012 16:22:33     DBSNMP      BSLN_THRESHOLD_PARAMS     06/08/2012 16:06:41
+APEX_030200     WWV_FLOW_ALTERNATE_CONFIG      06/08/2012 16:22:33     DBSNMP      BSLN_METRIC_DEFAULTS      06/08/2012 16:06:41
+APEX_030200     WWV_FLOW_ALT_CONFIG_DETAIL     06/08/2012 16:22:33     DBSNMP      BSLN_THRESHOLD_PARAMS     06/08/2012 16:06:41
+APEX_030200     WWV_FLOW_ALT_CONFIG_DETAIL     06/08/2012 16:22:33     DBSNMP      BSLN_METRIC_DEFAULTS      06/08/2012 16:06:41
+APEX_030200     WWV_FLOW_ALT_CONFIG_PICK       06/08/2012 16:22:33     DBSNMP      BSLN_THRESHOLD_PARAMS     06/08/2012 16:06:41
+APEX_030200     WWV_FLOW_ALT_CONFIG_PICK       06/08/2012 16:22:33     DBSNMP      BSLN_METRIC_DEFAULTS      06/08/2012 16:06:41
+
+
+14 rows returned
+-------------------------------------------------------------------------------------------------------------------------------------
+@
+
+Check the output CSV file
+
+@
+$ head .\/app\/result-data.csv
+OWNER,TABLE_NAME,LAST_ANALYZED
+DBSNMP,BSLN_BASELINES,04/15/2018 16:14:51
+DBSNMP,BSLN_METRIC_DEFAULTS,06/08/2012 16:06:41
+DBSNMP,BSLN_STATISTICS,04/15/2018 17:41:33
+DBSNMP,BSLN_THRESHOLD_PARAMS,06/08/2012 16:06:41
+SYS,BOOTSTRAP$,04/14/2014 13:53:43
+@
+
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -31,133 +272,272 @@ commentary with @some markup@.
 
 -- {-# LANGUAGE  DuplicateRecordFields #-}
 
+module RTable.Core ( 
 
-module RTable.Core
-    ( 
-       -- Relation(..)
-        RTabular (..)
-        ,RTable (..)
-        ,RTuple (..)
-        ,RTupleFormat (..)
-        ,ColFormatMap
-        ,FormatSpecifier (..)
-        ,RPredicate
-        ,RGroupPredicate
-        ,RJoinPredicate
-        ,UnaryRTableOperation
-        ,BinaryRTableOperation
-        ,Name
-        ,ColumnName
-        ,RTableName
-        ,ColumnDType (..)
-        ,RTableMData (..)
-        ,RTupleMData
-        ,RTimestamp (..)
-        ,ColumnInfo (..)
-        ,RDataType (..)
-        ,ROperation (..)
-        ,RAggOperation (..)
-        ,IgnoreDefault (..)
-        ,RTuplesRet
-        ,RTabResult
-        ,OrderingSpec (..)
-        ,raggSum
-        ,raggCount
-        ,raggAvg
-        ,raggMax
-        ,raggMin
-        ,emptyRTable
-        ,emptyRTuple
-        ,isRTabEmpty
-        ,isRTupEmpty
-        ,createSingletonRTable
-        ,getColumnNamesfromRTab
-        ,getColumnNamesfromRTuple
-        ,createRDataType
-        ,createNullRTuple
-        ,createRtuple
-        ,isNullRTuple
-        ,restrictNrows
-        ,createRTableMData
-        ,createRTimeStamp
-        ,getRTupColValue        
-        ,rtupLookup
-        ,rtupLookupDefault
-        , (<!>)
-        ,headRTup
-        ,upsertRTuple
-        ,toText
-        ,rTimeStampToRText
-        ,stdTimestampFormat
-        ,stdDateFormat
-        ,listOfColInfoRDataType
-        ,toListColumnName
-        ,toListColumnInfo
-        ,toListRDataType
-        ,rtupleToList
-        ,rtupleFromList
-        ,rtableToList
-        ,rtableFromList
-        --,runRfilter
-        ,f
-        --,runInnerJoin
-        ,iJ
-        --,runLeftJoin
-        ,lJ
-        --,runRightJoin
-        ,rJ
-        -- full outer join
-        ,foJ
-      --  ,runUnaryROperation
-        ,ropU
-      --  ,runBinaryROperation
-        ,ropB  
-        --,runUnion
-        ,u
-        --,runIntersect
-        ,i
-        --,runDiff
-        ,d 
-        --,runProjection
-        ,p   
-        --,runAggregation
-        ,rAgg
-        --,runGroupBy
-        ,rG 
-        ,rO
-        --,runCombinedROp 
-        ,rComb
-        ,stripRText
-        ,removeCharAroundRText
-        ,removeColumn
-        ,addColumn
-        ,isNull
-        ,isNotNull
-        ,nvl
-        ,nvlColValue
-        ,nvlRTuple
-        ,nvlRTable
-        ,decodeColValue
-        ,decodeRTable
-        ,rtabResult
-        ,runRTabResult
-        ,execRTabResult
-        ,rtuplesRet
-        ,getRTuplesRet
-        ,printRTable
-        ,printfRTable
-        ,rtupleToList
-        ,joinRTuples
-        ,insertPrependRTab
-        ,insertAppendRTab
-        ,updateRTab
-        ,rtabFoldr'
-        ,rtabFoldl'
-        ,rtabMap
-        ,genDefaultColFormatMap
-        ,genColFormatMap
-        ,genRTupleFormat
-        ,genRTupleFormatDefault
+    -- * The Relational Table Concept
+    -- ** RTable Data Types
+    RTable (..)
+    ,RTuple (..)
+    ,RDataType (..)
+    ,RTimestamp (..)
+    -- ** RTable Metadata Data Types
+    ,RTableMData (..)
+    ,RTupleMData (..)
+    ,ColumnInfo (..)    
+    ,Name
+    ,ColumnName
+    ,RTableName
+    ,ColumnDType (..)
+
+    -- * Type Classes for "Tabular Data"
+    ,RTabular (..)
+
+    -- * Relational Algebra Operations
+    -- ** Operations Data Types
+    ,ROperation (..)
+    ,UnaryRTableOperation    
+    ,BinaryRTableOperation    
+    ,RAggOperation (..)
+    -- *** Available Aggregate Operations
+    ,raggSum
+    ,raggCount
+    ,raggAvg
+    ,raggMax
+    ,raggMin    
+
+    -- ** Predicates
+    ,RPredicate
+    ,RGroupPredicate
+    ,RJoinPredicate
+
+    -- ** Operation Execution
+    ,runUnaryROperation
+    ,ropU
+    ,runUnaryROperationRes
+    ,ropUres
+    ,runBinaryROperation
+    ,ropB  
+    ,runBinaryROperationRes
+    ,ropBres
+
+    -- ** Operation Result
+    ,RTuplesRet
+    ,RTabResult
+    ,rtabResult
+    ,runRTabResult
+    ,execRTabResult
+    ,rtuplesRet
+    ,getRTuplesRet
+    -- ** Operation Composition
+    {-|
+    === An Example of Operation Composition
+    >>> -- define a simple RTable with four RTuples of a single column "col1"
+    >>> let tab1 = rtableFromList [rtupleFromList [("col1", RInt 1)], rtupleFromList [("col1", RInt 2)], rtupleFromList [("col1", RInt 3)], rtupleFromList [("col1", RInt 4)] ]
+
+    >>>  printRTable tab1
+
+    @
+    col1
+    ~~~~
+    1
+    2
+    3
+    4
+
+
+    4 rows returned
+    ---------
+    @
+    >>> -- define a filter operation col1 > 2
+    >>> let rop1 = RFilter (\t-> t<!>"col1" > 2)  
+
+    >>> -- define another filter operation col1 > 3
+    >>> let rop2 = RFilter (\t-> t<!>"col1" > 3)  
+
+    >>> -- Composition of RTable operations via (.) (rop1 returns 2 RTuples and rop2 returns 1 RTuple)
+    >>> printRTable $ (ropU rop2) . (ropU rop1) $ tab1
+
+    @
+    col1
+    ~~~~
+    4
+
+
+    1 row returned
+    ---------
+    @    
+    >>> -- Composition of RTabResult operations via (<=<) (Note: that the result includes the sum of the returned RTuples in each operation, i.e., 2+1 = 3)
+    >>>  execRTabResult $ (ropUres rop2) <=< (ropUres rop1) $ tab1
+    Sum {getSum = 3}
+    >>> printRTable $ fst.runRTabResult $ (ropUres rop2) <=< (ropUres rop1) $ tab1
+
+    @
+    col1
+    ~~~~
+    4
+
+
+    1 row returned
+    ---------
+    @
+    -}
+    , (.)
+    , (<=<)
+
+    -- * RTable Functions
+    -- ** Relational Algebra Functions
+    ,runRfilter
+    ,f
+    ,runInnerJoinO
+    ,iJ
+    ,runLeftJoin
+    ,lJ
+    ,runRightJoin
+    ,rJ
+    ,runFullOuterJoin
+    ,foJ
+    ,joinRTuples    
+    ,runUnion
+    ,u
+    ,runIntersect
+    ,i
+    ,runDiff
+    ,d 
+    ,runProjection
+    ,runProjectionMissedHits
+    ,p   
+    ,runAggregation
+    ,rAgg
+    ,runGroupBy
+    ,rG
+    ,runOrderBy 
+    ,rO
+    ,runCombinedROp 
+    ,rComb
+    -- ** Decoding
+    ,IgnoreDefault (..)    
+    ,decodeRTable
+    ,decodeColValue
+    -- ** Date/Time
+    ,createRTimeStamp    
+    ,rTimeStampToRText
+    ,stdTimestampFormat
+    ,stdDateFormat
+    -- ** Character/Text   
+    ,stripRText
+    ,removeCharAroundRText
+    -- ** NULL-Related
+    ,nvlRTable        
+    ,nvlRTuple    
+    ,isNullRTuple        
+    ,isNull
+    ,isNotNull
+    ,nvl
+    ,nvlColValue
+    -- ** Access RTable
+    ,isRTabEmpty
+    ,headRTup    
+    ,limit
+    --,restrictNrows        
+    ,isRTupEmpty
+    ,getRTupColValue        
+    ,rtupLookup
+    ,rtupLookupDefault
+    , (<!>)
+    , (<!!>)
+
+    -- ** Conversions
+    ,rtableToList
+    ,rtupleToList
+    ,toListRDataType
+    ,toText    
+    -- ** Container Functions
+    ,rtabMap
+    ,rtabFoldr'
+    ,rtabFoldl'
+    -- * Modify RTable (DML)
+    ,insertAppendRTab    
+    ,insertPrependRTab
+    ,updateRTab  
+    ,upsertRTuple    
+    -- * Create/Alter RTable (DDL)
+    ,emptyRTable
+    ,createSingletonRTable
+    ,rtableFromList    
+    ,addColumn    
+    ,removeColumn    
+    ,emptyRTuple
+    ,createNullRTuple
+    ,createRtuple
+    ,rtupleFromList    
+    ,createRDataType
+    -- * Metadata Functions
+    ,createRTableMData    
+    ,getColumnNamesfromRTab
+    ,getColumnNamesfromRTuple
+    ,listOfColInfoRDataType
+    ,toListColumnName
+    ,toListColumnInfo
+
+    -- * RTable IO Operations
+    -- ** RTable Printing and Formatting
+    {-|
+    === An Example of RTable printing
+    >>> -- define a simple RTable from a list
+    >>> :set -XOverloadedStrings
+    >>> :{    
+    let tab1 =  rtableFromList [   rtupleFromList [("ColInteger", RInt 1), ("ColDouble", RDouble 2.3), ("ColText", RText "We dig dig dig dig dig dig dig")]
+                            ,rtupleFromList [("ColInteger", RInt 2), ("ColDouble", RDouble 5.36879), ("ColText", RText "From early morn to night")]
+                            ,rtupleFromList [("ColInteger", RInt 3), ("ColDouble", RDouble 999.9999), ("ColText", RText "In a mine the whole day through")]
+                            ,rtupleFromList [("ColInteger", RInt 4), ("ColDouble", RDouble 0.9999), ("ColText", RText "Is what we like to do")]
+                          ]
+    :}                          
+    >>> -- print without format specification
+    >>> printRTable tab1
+
+    @
+    -----------------------------------------------------------------
+    ColInteger     ColText                             ColDouble
+    ~~~~~~~~~~     ~~~~~~~                             ~~~~~~~~~
+    1              We dig dig dig dig dig dig dig      2.30
+    2              From early morn to night            5.37
+    3              In a mine the whole day through     1000.00
+    4              Is what we like to do               1.00
+
+    4 rows returned
+    -----------------------------------------------------------------
+    @
+    >>> -- print with format specification (define column printing order and value formatting per column)
+    >>> printfRTable (genRTupleFormat ["ColInteger","ColDouble","ColText"] $ genColFormatMap [("ColInteger", Format "%d"),("ColDouble", Format "%1.1e"),("ColText", Format "%50s\n")]) tab1
+    
+    @
+    -----------------------------------------------------------------
+    ColInteger     ColDouble     ColText
+    ~~~~~~~~~~     ~~~~~~~~~     ~~~~~~~
+    1              2.3e0                             We dig dig dig dig dig dig dig
+
+    2              5.4e0                                   From early morn to night
+
+    3              1.0e3                            In a mine the whole day through
+
+    4              1.0e0                                      Is what we like to do
+
+
+    4 rows returned
+    -----------------------------------------------------------------    
+    @
+    -}    
+    ,printRTable
+    ,printfRTable
+    ,RTupleFormat (..)
+    ,ColFormatMap
+    ,FormatSpecifier (..)
+    ,OrderingSpec (..)
+    ,genRTupleFormat
+    ,genRTupleFormatDefault    
+    ,genColFormatMap
+    ,genDefaultColFormatMap    
+
     ) where
 
 import Debug.Trace
@@ -176,6 +556,8 @@ import Data.HashMap.Strict as HM
 
 -- Text
 import Data.Text as T
+
+--import Data.Text.IO as TIO 
 
 -- ByteString
 import qualified Data.ByteString as BS
@@ -196,6 +578,8 @@ import Data.Maybe (fromJust)
 import Data.Char (toUpper,digitToInt, isDigit)
 -- Data.Monoid
 import Data.Monoid as M
+-- Control.Monad
+import Control.Monad ((<=<))
 -- Control.Monad.Trans.Writer.Strict
 import Control.Monad.Trans.Writer.Strict (Writer, writer, runWriter, execWriter)
 -- Text.Printf
@@ -232,9 +616,18 @@ data Relation
 --}
 
 
+myRTableOperation :: RTable -> RTable
+myRTableOperation rtab = do
+       rtup <- rtab
+       let new_rtup = doStuff rtup
+       return new_rtup
+   where
+       doStuff :: RTuple -> RTuple
+       doStuff = undefined  
+
 -- * ########## Type Classes ##############
 
--- | Basic class to represent a data type that can be turned into an RTable.
+-- | Basic class to represent a data type that can be turned into an 'RTable'.
 -- It implements the concept of "tabular data" 
 class RTabular a where 
     
@@ -247,20 +640,20 @@ class RTabular a where
 -- * ########## Data Types ##############
 
 -- | Definition of the Relational Table entity
---   An RTable is essentially a vector of RTuples.
+--   An 'RTable' is a "container" of 'RTuple's.
 type RTable = V.Vector RTuple 
 
 
--- | Definition of the Relational Tuple
---   An RTuple is implemented as a hash map (colummname, RDataType). This ensures fast access of the column value by column name.
---   Note that this implies that the RTuple CANNOT have more than one columns with the same name (i.e. hashmap key) and more importantly that
+-- | Definition of the Relational Tuple.
+--   An 'RTuple' is implemented as a 'HashMap' of ('ColumnName', 'RDataType') pairs. This ensures fast access of the column value by column name.
+--   Note that this implies that the 'RTuple' CANNOT have more than one columns with the same name (i.e. hashmap key) and more importantly that
 --   it DOES NOT have a fixed order of columns, as it is usual in RDBMS implementations.
---   This gives us the freedom to perform column changes operations very fast.
---   The only place were we need fixed column order is when we try to load an RTable from a fixed-column structure such as a CSV file.
---   For this reason, we have embedded the notion of a fixed column-order in the RTuple metadata. See 'RTupleMData'.
+--   This gives us the freedom to perform column change operations very fast.
+--   The only place were we need fixed column order is when we try to load an 'RTable' from a fixed-column structure such as a CSV file.
+--   For this reason, we have embedded the notion of a fixed column-order in the 'RTuple' metadata. See 'RTupleMData'.
 type RTuple = HM.HashMap ColumnName RDataType
 
--- | Turns a RTable to a list
+-- | Turns an 'RTable' to a list of 'RTuple's
 rtableToList :: RTable -> [RTuple]
 rtableToList = V.toList
 
@@ -282,9 +675,8 @@ instance G.Generic RTuple
 instance PP.Tabulate RTuple
 -}
 
--- | Definitioin of the Name type
-type Name = String
-
+-- | Definition of the Name type
+type Name = Text
 
 -- | Definition of the Column Name
 type ColumnName = Name
@@ -294,13 +686,11 @@ type ColumnName = Name
 -- | Definition of the Table Name
 type RTableName = Name
 
--- | This is used only for metadata purposes. The actual data type of a value is an RDataType
--- The String component of Date data constructor is the date format e.g., "DD/MM/YYYY"
-data ColumnDType = Integer | Varchar | Date String | Timestamp String | Double deriving (Show, Eq)
+-- | This is used only for metadata purposes (see 'ColumnInfo'). The actual data type of a value is an RDataType
+-- The Text component of Date and Timestamp data constructors is the date format e.g., "DD\/MM\/YYYY", "DD\/MM\/YYYY HH24:MI:SS"
+data ColumnDType = Integer | Varchar | Date Text | Timestamp Text | Double deriving (Show, Eq)
 
--- | Definition of the Relational Data Types
--- These will be the data types supported by the RTable.
--- Essentially an RDataType is a wrpapper of Haskell common data types.
+-- | Definition of the Relational Data Type. This is the data type of the values stored in each 'RTable'.
 data RDataType = 
       RInt { rint :: Integer }
     -- RChar { rchar :: Char }
@@ -308,7 +698,7 @@ data RDataType =
     -- RString {rstring :: [Char]}
       | RDate { 
                 rdate :: T.Text
-               ,dtformat :: String  -- ^ e.g., "DD/MM/YYYY"
+               ,dtformat :: Text  -- ^ e.g., "DD\/MM\/YYYY"
             }
       | RTime { rtime :: RTimestamp  }
       | RDouble { rdouble :: Double }
@@ -317,18 +707,24 @@ data RDataType =
       deriving (Show,TB.Typeable, Read)   -- http://stackoverflow.com/questions/6600380/what-is-haskells-data-typeable
 
 
--- | We need to explicitly specify due to NULL logic (anything compared to NULL returns false)
+
+-- | We need to explicitly specify equation of RDataType due to SQL NULL logic (i.e., anything compared to NULL returns false):
 -- @
--- Null == _ = False
--- _ == Null = False
--- Null /= _ = False
--- _ /= Null = False
+-- Null == _ = False,
+-- _ == Null = False,
+-- Null /= _ = False,
+-- _ /= Null = False.
 -- @
 -- IMPORTANT NOTE:
---  Of course this means that anywhere in your code where you have something like this x == Null or x /= Null, will always return False and
--- thus it is futile to do this comparison. You have to use the is isNull function instead.
+-- Of course this means that anywhere in your code where you have something like this: 
+-- @
+-- x == Null or x /= Null, 
+-- @
+-- will always return False and thus it is futile to do this comparison. 
+-- You have to use the is 'isNull' function instead.
 --
 instance Eq RDataType where
+
     RInt i1 == RInt i2 = i1 == i2
     -- RInt i == _ = False
     RText t1 == RText t2 = t1 == t2
@@ -485,8 +881,16 @@ getRTupColValue =  rtupLookupDefault Null  -- HM.lookupDefault Null
        -- (HM.!)
        case rtupLookup c t of
             Just v -> v
-            Nothing -> error $ "*** Error in function Data.RTable.(<!>): Column \"" ++ c ++ "\" does not exist! ***" 
+            Nothing -> error $ "*** Error in function Data.RTable.(<!>): Column \"" ++ (T.unpack c) ++ "\" does not exist! ***" 
 
+
+-- | Safe Operator for getting a column value from an RTuple
+--   if the column name is not found, then it returns Nothing
+(<!!>) ::
+       RTuple        -- ^ Input RTuple
+    -> ColumnName    -- ^ ColumnName key
+    -> Maybe RDataType     -- ^ Output value
+(<!!>) t c = rtupLookup c t 
 
 -- | Returns the 1st parameter if this is not Null, otherwise it returns the 2nd. 
 nvl ::
@@ -518,8 +922,9 @@ nvlColValue col defaultVal tup =
 data IgnoreDefault = Ignore | NotIgnore deriving (Eq, Show)
 
 -- | It receives an RTuple and lookups the value at a specfic column name.
--- Then it compares this value with the specified search value. If it is eaqual to the search value
--- then it returns the specified Return Value. If not, the it returns the specified default Value (if the ignore indicator is not set).
+-- Then it compares this value with the specified search value. If it is equal to the search value
+-- then it returns the specified Return Value. If not, then it returns the specified default Value, if the ignore indicator is not set,
+-- otherwise (if the ignore indicator is set) it returns the existing value.
 -- If you pass an empty RTuple, then it returns Null.
 -- Calls error if this map contains no mapping for the key.
 decodeColValue ::
@@ -570,8 +975,9 @@ nvlRTable c defaultVal tab  =
 
 -- | It receives an RTable, a search value and a default value. It returns a new RTable which is identical to the source one
 -- but for each RTuple, for the specified column:
---   * if the search value was found then the specified Return Value is returned
---   * else the default value is returned  (if the ignore indicator is not set)  
+-- if the search value was found then the specified Return Value is returned
+-- else the default value is returned  (if the ignore indicator is not set), otherwise (if the ignore indicator is set),
+-- it returns the existing value for the column for each 'RTuple'. 
 -- If you pass an empty RTable, then it returns an empty RTable
 -- Calls error if the column does not exist
 decodeRTable ::            
@@ -615,7 +1021,7 @@ removeCharAroundRText :: Char -> RDataType -> RDataType
 removeCharAroundRText ch (RText t) = RText $ T.dropAround (\c -> c == ch) t
 removeCharAroundRText ch _ = Null
 
--- | RTimestamp data type
+-- | Basic data type to represent time.
 data RTimestamp = RTimestampVal {
             year :: Int
             ,month :: Int
@@ -730,6 +1136,16 @@ createRTimeStamp fmt timeVal =
 
         parseTime _ = RTimestampVal {year = 2999, month = 12, day = 31, hours24 = 11, minutes = 59, seconds = 59}
 
+-- | Convert from an RDate or RTimeStamp to a UTCTime
+{-
+toUTCTime :: RDataType -> Maybe UTCTime
+toUTCTime rdt = 
+    case rdt of 
+        RDate { rdate = dt, dtformat = fmt } ->
+        RTime { rtime = RTimeStamp {year = y, month = m, day = d, hours24 = hh, minutes = m } }
+
+fromUTCTime :: UTCTime -> RDataType
+-}
 
 -- | Return the Text out of an RDataType
 -- If a non-text RDataType is given then Nothing is returned.
@@ -777,7 +1193,7 @@ rTimeStampToRText "YYYY" ts =                   let
 
 -- | Metadata for an RTable
 data RTableMData =  RTableMData {
-                        rtname :: RTableName
+                        rtname :: RTableName        -- ^  Name of the 'RTable'
                         ,rtuplemdata :: RTupleMData  -- ^ Tuple-level metadata                    
                         -- other metadata
                         ,pkColumns :: [ColumnName] -- ^ Primary Key
@@ -822,26 +1238,27 @@ createRTupleMdata clist =
 
 
 
--- | Basic Metadata of an RTuple.
---   The RTuple metadata are accessed through a HashMap ColumnName ColumnInfo  structure. I.e., for each column of the RTuple,
---   we access the ColumnInfo structure to get Column-level metadata. This access is achieved by ColumnName.
---   However, in order to provide the "impression" of a fixed column order per tuple (see 'RTuple' definition), we provide another HashMap,
---   the HashMap ColumnOrder ColumnName. So if we want to access the RTupleMData tupmdata ColumnInfo by column order, we have to do the following:
+-- | Basic Metadata of an 'RTuple'.
+--   The 'RTuple' metadata are accessed through a 'HashMap' 'ColumnName' 'ColumnInfo'  structure. I.e., for each column of the 'RTuple',
+--   we access the 'ColumnInfo' structure to get Column-level metadata. This access is achieved by 'ColumnName'.
+--   However, in order to provide the "impression" of a fixed column order per tuple (see 'RTuple' definition), we provide another 'HashMap',
+--   the 'HashMap' 'ColumnOrder' 'ColumnName'. So in the follwoing example, if we want to access the 'RTupleMData' tupmdata ColumnInfo by column order, 
+--   (assuming that we have N columns) we have to do the following:
 --    
 -- @
 --      (snd tupmdata)!((fst tupmdata)!0)
 --      (snd tupmdata)!((fst tupmdata)!1)
 --      ...
---      (snd tupmdata)!((fst tupmdata)!N)
+--      (snd tupmdata)!((fst tupmdata)!(N-1))
 -- @
 --
---  In the same manner in order to access the column of an RTuple (e.g., tup) by column order we do the following:
+--  In the same manner in order to access the column of an 'RTuple' (e.g., tup) by column order, we do the following:
 --
 -- @
 --      tup!((fst tupmdata)!0)
 --      tup!((fst tupmdata)!1)
 --      ...
---      tup!((fst tupmdata)!N)
+--      tup!((fst tupmdata)!(N-1))
 -- @
 -- 
 type RTupleMData =  (HM.HashMap ColumnOrder ColumnName, HM.HashMap ColumnName ColumnInfo) 
@@ -1010,7 +1427,7 @@ selection r p = undefined
 
 --}
 
--- | Definition of a Predicate
+-- | A Predicate. It defines an arbitrary condition over the columns of an 'RTuple'. It is used primarily in the filter 'RFilter' operation and used in the filter function 'f'.
 type RPredicate = RTuple -> Bool
 
 -- | Definition of Relational Algebra operations.
@@ -1021,27 +1438,53 @@ data ROperation =
     | RInter     -- ^ Intersection
     | RDiff    -- ^ Difference
     | RPrj    { colPrjList :: [ColumnName] }   -- ^ Projection
-    | RFilter { fpred :: RPredicate }   -- ^ Filter
-    | RInJoin { jpred :: RJoinPredicate }     -- ^ Inner Join (any type of join predicate allowed)
-    | RLeftJoin { jpred :: RJoinPredicate }   -- ^ Left Outer Join (any type of join predicate allowed)    
-    | RRightJoin { jpred :: RJoinPredicate }  -- ^ Right Outer Join (any type of join predicate allowed)        
-    | RAggregate { aggList :: [RAggOperation] } -- Performs some aggregation operations on specific columns and returns a singleton RTable
-    | RGroupBy  { gpred :: RGroupPredicate, aggList :: [RAggOperation], colGrByList :: [ColumnName] } -- ^ A GroupBy operation
-                                                                                                      -- An SQL equivalent: SELECT colGrByList, aggList FROM... GROUP BY colGrByList
-                                                                                                      -- Note that compared to SQL, we can have a more generic grouping predicate (i.e.,
-                                                                                                      -- when two RTuples should belong in the same group) than just the equality of 
-                                                                                                      -- values on the common columns between two RTuples.
-                                                                                                      -- Also note, that in the case of an aggregation without grouping (equivalent to
-                                                                                                      -- a single group group by), then the grouping predicate should be: 
-                                                                                                      -- @
-                                                                                                      -- \_ _ -> True
-                                                                                                      -- @
-    | RCombinedOp { rcombOp :: UnaryRTableOperation  }   -- ^ A combination of unary ROperations e.g.,   (p plist).(f pred)  (i.e., RPrj . RFilter), in the form of an RTable -> RTable function.
-                                                     --  In this sense we can also include a binary operation (e.g. join), if we partially apply the join to one RTable
-                                                     --  e.g., (ij jpred rtab) . (p plist) . (f pred)
-    | RBinOp { rbinOp :: BinaryRTableOperation } -- ^ A generic binary ROperation.
-    | ROrderBy { colOrdList :: [(ColumnName, OrderingSpec)] }   -- ^ Order the RTuples of the RTable acocrding to the specified list of Columns.
-                                                                -- First column in the input list has the highest priority in the sorting order
+    | RFilter { fpred :: RPredicate }   -- ^ Filter operation (an 'RPredicate' can be any function of the signature
+                                        -- @
+                                        -- RTuple -> Bool
+                                        -- @
+                                        -- so it is much more powerful than a typical SQL filter expression, which is a boolean expression of comparison operators)
+    | RInJoin { jpred :: RJoinPredicate }     -- ^ Inner Join (any type of join predicate allowed. Any function with a signature of the form:
+                                              -- @
+                                              -- RTuple -> RTuple -> Bool
+                                              -- @
+                                              -- is a valid join predicate. I.e., a function which returns 'True' when two 'RTuples' must be paired)
+    | RLeftJoin { jpred :: RJoinPredicate }   -- ^ Left Outer Join    
+    | RRightJoin { jpred :: RJoinPredicate }  -- ^ Right Outer Join         
+    | RAggregate { aggList :: [RAggOperation] -- ^ list of aggregates 
+                 } -- ^ Performs aggregation operations on specific columns and returns a singleton RTable
+    | RGroupBy  { 
+                    gpred :: RGroupPredicate        -- ^ the grouping predicate
+                    ,aggList :: [RAggOperation]     -- ^ the list of aggregates
+                    ,colGrByList :: [ColumnName]    -- ^ the Group By list of columns
+                }   -- ^ A Group By operation
+                    -- The SQL equivalent is: 
+                    -- @
+                    -- SELECT colGrByList, aggList FROM... GROUP BY colGrByList
+                    -- @
+                    -- Note that compared to SQL, we can have a more generic grouping predicate (i.e.,
+                    -- when two 'RTuple's should belong in the same group) than just the equality of 
+                    -- values on the common columns between two 'RTuple's.
+                    -- Also note, that in the case of an aggregation without grouping (equivalent to
+                    -- a single-group group by), then the grouping predicate should be: 
+                    -- @
+                    -- \_ _ -> True
+                    -- @
+    | RCombinedOp { rcombOp :: UnaryRTableOperation  }   -- ^ A combination of unary 'ROperation's e.g., 
+                                                         -- @
+                                                         --  (p plist).(f pred)  (i.e., RPrj . RFilter)
+                                                         -- @
+                                                         -- , in the form of an 
+                                                         -- @
+                                                         -- RTable -> RTable function.
+                                                         -- @
+                                                         --  In this sense we can also include a binary operation (e.g. join), if we partially apply the join to one 'RTable', e.g.,
+                                                         --   
+                                                         -- @ 
+                                                         -- (ij jpred rtab) . (p plist) . (f pred)
+                                                         -- @
+    | RBinOp { rbinOp :: BinaryRTableOperation } -- ^ A generic binary 'ROperation'.
+    | ROrderBy { colOrdList :: [(ColumnName, OrderingSpec)] }   -- ^ Order the 'RTuple's of the 'RTable' acocrding to the specified list of Columns.
+                                                                -- First column in the input list has the highest priority in the sorting order.
 
 -- | A sum type to help the specification of a column ordering (Ascending, or Descending)
 data OrderingSpec = Asc | Desc deriving (Show, Eq)
@@ -1053,11 +1496,11 @@ type UnaryRTableOperation = RTable -> RTable
 type BinaryRTableOperation = RTable -> RTable -> RTable
 
 
--- | Definition of a Join Predicate
+-- | The Join Predicate. It defines when two 'RTuple's should be paired.
 type RJoinPredicate = RTuple -> RTuple -> Bool
 
--- | Definition of a Group By Predicate
--- It defines the condition for two RTuples to be included in the same group.
+-- | The Group By Predicate
+-- It defines the condition for two 'RTuple's to be included in the same group.
 type RGroupPredicate = RTuple -> RTuple -> Bool
 
 
@@ -1075,13 +1518,14 @@ type RGroupPredicate = RTuple -> RTuple -> Bool
 -- So for example, a SUM(column) will just ignore them and also will COUNT(column), i.e., it 
 -- will not sum or count the Nulls. If all columns are Null, then a Null will be returned.
 --
+-- With this data type one can define his/her own aggregate operations and then execute them
+-- with the 'runAggregation' (or 'rAgg') functions.
+--
 data RAggOperation = RAggOperation {
                          sourceCol :: ColumnName    -- ^ Source column
                         ,targetCol :: ColumnName    -- ^ Target column
                         ,aggFunc :: RTable -> RTuple  -- ^ here we define the aggegate function to be applied on an RTable
                     }
-
--- | The following are all common aggregate operations
 
 -- | The Sum aggregate operation
 raggSum :: 
@@ -1249,7 +1693,7 @@ data RAggOperation =
         | RMax ColumnName -- ^ maximum of values in the specific column
 --}
 
--- | ropU operator executes a unary ROperation
+-- | ropU operator executes a unary ROperation. A short name for the 'runUnaryROperation' function
 ropU = runUnaryROperation
 
 -- | Execute a Unary ROperation
@@ -1266,8 +1710,20 @@ runUnaryROperation rop irtab =
         RCombinedOp { rcombOp = comb }                                                  ->  runCombinedROp comb irtab 
         ROrderBy { colOrdList = colist }                                                ->  runOrderBy colist irtab
 
+-- | ropUres operator executes a unary ROperation. A short name for the 'runUnaryROperationRes' function
+ropUres = runUnaryROperationRes
 
--- | ropB operator executes a binary ROperation
+-- | Execute a Unary ROperation and return an 'RTabResult'
+runUnaryROperationRes :: 
+    ROperation -- ^ input ROperation
+    -> RTable  -- ^ input RTable
+    -> RTabResult  -- ^ output: Result of operation
+runUnaryROperationRes rop irtab = 
+    let resultRtab = runUnaryROperation rop irtab
+        returnedRtups = rtuplesRet $ V.length resultRtab
+    in rtabResult (resultRtab, returnedRtups)
+
+-- | ropB operator executes a binary ROperation. A short name for the 'runBinaryROperation' function
 ropB = runBinaryROperation
 
 -- | Execute a Binary ROperation
@@ -1278,13 +1734,27 @@ runBinaryROperation ::
     -> RTable  -- ^ output RTabl
 runBinaryROperation rop irtab1 irtab2 = 
     case rop of
-        RInJoin    { jpred = jpredicate } -> runInnerJoin jpredicate irtab1 irtab2
+        RInJoin    { jpred = jpredicate } -> runInnerJoinO jpredicate irtab1 irtab2
         RLeftJoin  { jpred = jpredicate } -> runLeftJoin jpredicate irtab1 irtab2
         RRightJoin { jpred = jpredicate } -> runRightJoin jpredicate irtab1 irtab2
         RUnion -> runUnion irtab1 irtab2
         RInter -> runIntersect irtab1 irtab2
         RDiff  -> runDiff irtab1 irtab2  
         RBinOp { rbinOp = bop } -> bop irtab1 irtab2      
+
+-- | ropBres operator executes a binary ROperation. A short name for the 'runBinaryROperationRes' function
+ropBres = runBinaryROperationRes
+
+-- | Execute a Binary ROperation and return an 'RTabResult'
+runBinaryROperationRes :: 
+    ROperation -- ^ input ROperation
+    -> RTable  -- ^ input RTable1
+    -> RTable  -- ^ input RTable2    
+    -> RTabResult  -- ^ output: Result of operation
+runBinaryROperationRes rop irtab1 irtab2 = 
+    let resultRtab = runBinaryROperation rop irtab1 irtab2
+        returnedRtups = rtuplesRet $ V.length resultRtab
+    in rtabResult (resultRtab, returnedRtups)
 
 
 -- * #########  Construction ##########
@@ -1320,8 +1790,8 @@ createRtuple l = HM.fromList l
 
 
 
--- | Creates a Null RTuple based on a list of input Column Names.
--- A Null RTuple is an RTuple where all column names correspond to a Null value (Null is a data constructor of RDataType)
+-- | Creates a Null 'RTuple' based on a list of input Column Names.
+-- A 'Null' 'RTuple' is an 'RTuple' where all column names correspond to a 'Null' value ('Null' is a data constructor of 'RDataType')
 createNullRTuple ::
        [ColumnName]
     -> RTuple
@@ -1427,7 +1897,7 @@ addColumn name initVal rtabSrc = do
     return targetRtup
 
 
--- | RTable Filter operator
+-- | Filter (i.e. selection operator). A short name for the 'runRFilter' function
 f = runRfilter
 
 -- | Executes an RFilter operation
@@ -1441,7 +1911,7 @@ runRfilter rpred rtab =
         else 
             V.filter rpred rtab
 
--- | RTable Projection operator
+-- | RTable Projection operator. A short name for the 'runProjection' function
 p = runProjection
 
 -- | Implements RTable projection operation.
@@ -1497,15 +1967,23 @@ runProjectionMissedHits colNamList irtab =
                     targetRtuple = HM.fromList (Data.List.zip colNamList srcValueL)
                 return targetRtuple
 
+-- | returns the N first 'RTuple's of an 'RTable'
+limit ::
+       Int          -- ^ number of N 'RTuple's to return
+    -> RTable       -- ^ input 'RTable'
+    -> RTable       -- ^ output 'RTable'
+limit n r1 = V.take n r1
 
+{-
 -- | restrictNrows: returns the N first rows of an RTable
 restrictNrows ::
        Int          -- ^ number of N rows to select
     -> RTable       -- ^ input RTable
     -> RTable       -- ^ output RTable
 restrictNrows n r1 = V.take n r1
+-}
 
--- | RTable Inner Join Operator
+-- | RTable Inner Join Operator. A short name for the 'runInnerJoinO' function
 iJ = runInnerJoinO
 
 -- | Implements an Inner Join operation between two RTables (any type of join predicate is allowed)
@@ -1532,10 +2010,11 @@ runInnerJoin jpred irtab1 irtab2 =
                 removeEmptyRTuples (return targetRtuple)
                     where removeEmptyRTuples = f (not.isRTupEmpty) 
 
--- Inner Join with Oracle DB's convention for common column names.
--- When we have two tuples t1 and t2 with a common column name (lets say "Common"), then the resulting tuple after a join
--- will be "Common", "Common_1", so a "_1" suffix is appended. The tuple from the left table by convention retains the original column name.
--- So "Column_1" is the column from the right table. If "Column_1" already exists, then "Column_2" is used.
+-- | Implements an Inner Join operation between two RTables (any type of join predicate is allowed)
+-- This Inner Join implementation follows Oracle DB's convention for common column names.
+-- When we have two tuples t1 and t2 with a common column name (lets say \"Common\"), then the resulting tuple after a join
+-- will be \"Common\", \"Common_1\", so a \"_1\" suffix is appended. The tuple from the left table by convention retains the original column name.
+-- So \"Column_1\" is the column from the right table. If \"Column_1\" already exists, then \"Column_2\" is used.
 runInnerJoinO ::
     RJoinPredicate
     -> RTable
@@ -1596,17 +2075,18 @@ joinRTuples tleft tright =
             -- "hello_1" -> "hello_2"
             -- "hello_2" -> "hello_3"
             newKey :: ColumnName -> ColumnName
-            newKey name  = 
+            newKey nameT  = 
                 let 
+                    name  = T.unpack nameT
                     lastChar = Data.List.last name
                     beforeLastChar = name !! (Data.List.length name - 2)
                 in  
                     if beforeLastChar == '_'  &&  Data.Char.isDigit lastChar
-                                    then (Data.List.take (Data.List.length name - 2) name) ++ ( '_' : (show $ (read (lastChar : "") :: Int) + 1) )
-                                    else name ++ "_1"
+                                    then T.pack $ (Data.List.take (Data.List.length name - 2) name) ++ ( '_' : (show $ (read (lastChar : "") :: Int) + 1) )
+                                    else T.pack $ name ++ "_1"
 
 
--- | RTable Left Outer Join Operator
+-- | RTable Left Outer Join Operator. A short name for the 'runLeftJoin' function
 lJ = runLeftJoin
 
 -- | Implements a Left Outer Join operation between two RTables (any type of join predicate is allowed),
@@ -1685,7 +2165,7 @@ runLeftJoin jpred preservingTab tab =
                     in u unionFstPart unionSndPart
 
 
--- | RTable Right Outer Join Operator
+-- | RTable Right Outer Join Operator. A short name for the 'runRightJoin' function
 rJ = runRightJoin
 
 -- | Implements a Right Outer Join operation between two RTables (any type of join predicate is allowed),
@@ -1760,7 +2240,7 @@ runRightJoin jpred rtab rightRTab = do
                     where colNamesList = HM.keys rtup
     return targetRtuple-}
 
--- | RTable Full Outer Join Operator
+-- | RTable Full Outer Join Operator. A short name for the 'runFullOuterJoin' function
 foJ = runFullOuterJoin
 
 -- | Implements a Full Outer Join operation between two RTables (any type of join predicate is allowed)
@@ -1792,7 +2272,7 @@ runFullOuterJoin jpred leftRTab rightRTab = -- (lJ jpred leftRTab rightRTab) `u`
         unionSndPart = iJ (\t1 t2 -> True) (createSingletonRTable $ createNullRTuple $ (getColumnNamesfromRTab leftRTab)) unionSndPartTemp2
     in unionFstPart `u` unionSndPart
 
--- | RTable Union Operator
+-- | RTable Union Operator. A short name for the 'runUnion' function
 u = runUnion
 
 -- We cannot implement Union like the following (i.e., union of lists) because when two identical RTuples that contain Null values are checked for equality
@@ -1840,7 +2320,7 @@ runUnion rt1 rt2 =
 
 
 
--- | RTable Intersection Operator
+-- | RTable Intersection Operator. A short name for the 'runIntersect' function
 i = runIntersect
 
 -- | Implements the intersection of two RTables 
@@ -1872,7 +2352,7 @@ runIntersect rt1 rt2 =
 
 -}
 
--- | RTable Difference Operator
+-- | RTable Difference Operator. A short name for the 'runDiff' function
 d = runDiff
 
 -- Test it with this, from ghci:
@@ -1992,6 +2472,7 @@ runDiff rt1 rt2 =
     in  V.fromList resultLs
 -}
             
+-- | Aggregation Operator. A short name for the 'runAggregation' function
 rAgg = runAggregation
 
 -- | Implements the aggregation operation on an RTable
@@ -2016,6 +2497,7 @@ runAggregation aggOps rtab =
                     let RAggOperation { sourceCol = src, targetCol = trg, aggFunc = aggf } = agg                        
                     in (getResultRTuple aggs rt) `HM.union` (aggf rt)   -- (aggf rt) `HM.union` (getResultRTuple aggs rt) 
 
+-- | Order By Operator. A short name for the 'runOrderBy' function
 rO = runOrderBy
 
 -- | Implements the ORDER BY operation.
@@ -2103,6 +2585,7 @@ runOrderBy ordSpec rtab =
                                         LT -> if colordspec == Asc 
                                                 then LT else GT
 
+-- | Group By Operator. A short name for the 'runGroupBy' function
 rG = runGroupBy
 
 -- RGroupBy  { gpred :: RGroupPredicate, aggList :: [RAggOperation], colGrByList :: [ColumnName] }
@@ -2154,7 +2637,7 @@ runGroupBy gpred aggOps cols rtab =
                 listOfRTupGroupLists = Data.List.groupBy gpred listOfRTupSorted       
 
                 -- debug
-              --  !dummy2 = trace (show listOfRTupGroupLists) True
+                -- !dummy2 = trace (show listOfRTupGroupLists) True
 
                 -- 2. turn each (sub)list of Rtuples representing a Group into an RTable in order to apply aggregation
                 --    Note: each RTable in this list will hold a group of RTuples that all have the same values in the input grouping columns
@@ -2163,22 +2646,22 @@ runGroupBy gpred aggOps cols rtab =
                 -- 3. We need to keep the values of the grouping columns (e.g., by selecting the fisrt row) from each one of these RTables,
                 --    in order to "join them" with the aggregated RTuples that will be produced by the aggregation operations
                 --    The following will produce a list of singleton RTables.
-                listOfGroupingColumnsRtabs = Data.List.map ( (restrictNrows 1) . (p cols) ) listofGroupRtabs
+                listOfGroupingColumnsRtabs = Data.List.map ( (limit 1) . (p cols) ) listofGroupRtabs
 
                 -- debug
-              --  !dummy3 = trace (show listOfGroupingColumnsRtabs) True
+                -- !dummy3 = trace (show listOfGroupingColumnsRtabs) True
 
                 -- 4. Aggregate each group according to input and produce a list of (aggregated singleton RTables)
                 listOfAggregatedRtabs = Data.List.map (rAgg aggOps) listofGroupRtabs
 
                 -- debug
-              --  !dummy4 = trace (show listOfAggregatedRtabs ) True
+                -- !dummy4 = trace (show listOfAggregatedRtabs ) True
 
                 -- 5. Join the two list of singleton RTables
                 listOfFinalRtabs = Data.List.zipWith (iJ (\t1 t2 -> True)) listOfGroupingColumnsRtabs listOfAggregatedRtabs
 
                 -- debug
-              --  !dummy5 = trace (show listOfFinalRtabs) True
+                -- !dummy5 = trace (show listOfFinalRtabs) True
 
 
                 -- 6. Union all individual singleton RTables into the final RTable
@@ -2187,7 +2670,7 @@ runGroupBy gpred aggOps cols rtab =
                 createOrderingSpec :: [ColumnName] -> [(ColumnName, OrderingSpec)]
                 createOrderingSpec cols = Data.List.zip cols (Data.List.take (Data.List.length cols) $ Data.List.repeat Asc)
 
-
+-- | A short name for the 'runCombinedROp' function
 rComb = runCombinedROp
 
 -- | runCombinedROp: A Higher Order function that accepts as input a combination of unary ROperations e.g.,   (p plist).(f pred)
@@ -2242,12 +2725,12 @@ updateRTab ((colName, newVal) : rest) rpred inputRtab =
 
 -- * ########## RTable IO Operations ##############
 
--- | Basic data type for defining the desired formatting of an Rtuple
+-- | Basic data type for defining the desired formatting of an 'RTuple' when printing an RTable (see 'printfRTable').
 data RTupleFormat = RTupleFormat {
-    -- | For defining the column ordering (i.e., the SELECT clause in SQL)
-    colSelectList :: [ColumnName]
-    -- | For defining the formating per Column (in printf style)
-    ,colFormatMap :: ColFormatMap
+    
+    colSelectList :: [ColumnName] -- ^ For defining the column ordering (i.e., the SELECT clause in SQL)    
+    ,colFormatMap :: ColFormatMap -- ^ For defining the formating per Column in \"'printf' style\"
+
 } deriving (Eq, Show)
 
 -- | A map of ColumnName to Format Specification
@@ -2264,7 +2747,7 @@ genColFormatMap ::
 genColFormatMap fs = HM.fromList fs
 
 
--- | Format specifier of Text.Printf.printf style.(see https://hackage.haskell.org/package/base-4.10.1.0/docs/Text-Printf.html)
+-- | Format specifier of 'Text.Printf.printf' style
 data FormatSpecifier = DefaultFormat | Format String deriving (Eq, Show)
 
 -- | Generate an RTupleFormat data type instance
@@ -2276,11 +2759,14 @@ genRTupleFormat colNames colfMap = RTupleFormat { colSelectList = colNames, colF
 
 -- | Generate a default RTupleFormat data type instance.
 -- In this case the returned column order (Select list), will be unspecified
--- and dependant only by the underlying structure of the RTuple (HashMap)
+-- and dependant only by the underlying structure of the 'RTuple' ('HashMap')
 genRTupleFormatDefault :: RTupleFormat
 genRTupleFormatDefault = RTupleFormat { colSelectList = [], colFormatMap = genDefaultColFormatMap }
 
--- | prints an RTable with an RTuple format specification
+-- | prints an RTable with an RTuple format specification.
+-- It should be used instead of 'printRTable' for two reasons:
+-- a) When we want to specify the order that the columns will be printed on screen
+-- b) When we want to specify the formatting of the values by using a 'printf'-like 'FormatSpecifier'
 printfRTable :: RTupleFormat -> RTable -> IO()
 printfRTable rtupFmt rtab = -- undefined
     if isRTabEmpty rtab
@@ -2377,7 +2863,7 @@ getMaxLengthPerColumnFmt rtupFmt rtab =
             rtup <- rtab
             let ls = Data.List.map (\(c, v) -> (c, RInt $ fromIntegral $ Data.List.length . rdataTypeToString $ v) ) (rtupleToList rtup)
                 -- create an RTuple with the column names lengths
-                headerLengths = Data.List.zip (getColumnNamesfromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length c) (getColumnNamesfromRTab rtab))
+                headerLengths = Data.List.zip (getColumnNamesfromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length (T.unpack c)) (getColumnNamesfromRTab rtab))
             -- append  to the rtable also the tuple corresponding to the header (i.e., the values will be the names of the column) in order
             -- to count them also in the width calculation
             (return $ createRtuple ls) V.++ (return $ createRtuple headerLengths)
@@ -2412,7 +2898,7 @@ getMaxLengthPerColumn rtab =
             rtup <- rtab
             let ls = Data.List.map (\(c, v) -> (c, RInt $ fromIntegral $ Data.List.length . rdataTypeToString $ v) ) (rtupleToList rtup)
                 -- create an RTuple with the column names lengths
-                headerLengths = Data.List.zip (getColumnNamesfromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length c) (getColumnNamesfromRTab rtab))
+                headerLengths = Data.List.zip (getColumnNamesfromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length (T.unpack c)) (getColumnNamesfromRTab rtab))
             -- append  to the rtable also the tuple corresponding to the header (i.e., the values will be the names of the column) in order
             -- to count them also in the width calculation
             (return $ createRtuple ls) V.++ (return $ createRtuple headerLengths)
@@ -2494,7 +2980,8 @@ printContLineFmt rtupFmt widths ch rtab = do
                                     colSelectList rtupFmt
                                 else
                                     getColumnNamesfromRTab rtab -- [ColumnName] 
-        listOfLinesCont = Data.List.map (\c -> Data.List.take (Data.List.length c) (repeat ch)) listOfColNames
+        listOfLinesCont = Data.List.map (\c -> Data.List.take (Data.List.length (T.unpack c)) (repeat ch)) listOfColNames
+        --listOfLinesCont = Data.List.map (\c ->  T.replicate (T.length c) (T.singleton ch)) listOfColNames
         formattedLinesCont = Data.List.map (\(w,l) -> addCharacter (w - (Data.List.length l) + spaceSeparatorWidth) ch l) (Data.List.zip widths listOfLinesCont)
         formattedRowOfLinesCont = Data.List.foldr (\line accum -> line ++ accum) "" formattedLinesCont
     putStrLn formattedRowOfLinesCont
@@ -2508,7 +2995,7 @@ printContLine ::
     -> IO ()
 printContLine widths ch rtab = do
     let listOfColNames =  getColumnNamesfromRTab rtab -- [ColumnName] 
-        listOfLinesCont = Data.List.map (\c -> Data.List.take (Data.List.length c) (repeat ch)) listOfColNames
+        listOfLinesCont = Data.List.map (\c -> Data.List.take (Data.List.length (T.unpack c)) (repeat ch)) listOfColNames
         formattedLinesCont = Data.List.map (\(w,l) -> addCharacter (w - (Data.List.length l) + spaceSeparatorWidth) ch l) (Data.List.zip widths listOfLinesCont)
         formattedRowOfLinesCont = Data.List.foldr (\line accum -> line ++ accum) "" formattedLinesCont
     putStrLn formattedRowOfLinesCont
@@ -2525,12 +3012,12 @@ printRTableHeaderFmt rtupFmt widths rtab = do -- undefined
         let listOfColNames = if rtupFmt /= genRTupleFormatDefault then colSelectList rtupFmt else  getColumnNamesfromRTab rtab -- [ColumnName]
             -- format each column name according the input width and return a list of Boxes [Box]
             -- formattedList =  Data.List.map (\(w,c) -> BX.para BX.left (w + spaceSeparatorWidth) c) (Data.List.zip widths listOfColNames)    -- listOfColNames   -- map (\c -> BX.render . BX.text $ c) listOfColNames
-            formattedList = Data.List.map (\(w,c) -> addSpace (w - (Data.List.length c) + spaceSeparatorWidth) c) (Data.List.zip widths listOfColNames) 
+            formattedList = Data.List.map (\(w,c) -> addSpace (w - (Data.List.length (T.unpack c)) + spaceSeparatorWidth) (T.unpack c)) (Data.List.zip widths listOfColNames) 
             -- Paste all boxes together horizontally
             -- formattedRow = BX.render $ Data.List.foldr (\colname_box accum -> accum BX.<+> colname_box) BX.nullBox formattedList
             formattedRow = Data.List.foldr (\colname accum -> colname ++ accum) "" formattedList
             
-            listOfLines = Data.List.map (\c -> Data.List.take (Data.List.length c) (repeat '~')) listOfColNames
+            listOfLines = Data.List.map (\c -> Data.List.take (Data.List.length (T.unpack c)) (repeat '~')) listOfColNames
           --  listOfLinesCont = Data.List.map (\c -> Data.List.take (Data.List.length c) (repeat '-')) listOfColNames
             --formattedLines = Data.List.map (\(w,l) -> BX.para BX.left (w +spaceSeparatorWidth) l) (Data.List.zip widths listOfLines)
             formattedLines = Data.List.map (\(w,l) -> addSpace (w - (Data.List.length l) + spaceSeparatorWidth) l) (Data.List.zip widths listOfLines)
@@ -2558,15 +3045,17 @@ printRTableHeader widths rtab = do -- undefined
         let listOfColNames =  getColumnNamesfromRTab rtab -- [ColumnName]
             -- format each column name according the input width and return a list of Boxes [Box]
             -- formattedList =  Data.List.map (\(w,c) -> BX.para BX.left (w + spaceSeparatorWidth) c) (Data.List.zip widths listOfColNames)    -- listOfColNames   -- map (\c -> BX.render . BX.text $ c) listOfColNames
-            formattedList = Data.List.map (\(w,c) -> addSpace (w - (Data.List.length c) + spaceSeparatorWidth) c) (Data.List.zip widths listOfColNames) 
+            formattedList = Data.List.map (\(w,c) -> addSpace (w - (Data.List.length (T.unpack c)) + spaceSeparatorWidth) (T.unpack c)) (Data.List.zip widths listOfColNames) 
             -- Paste all boxes together horizontally
             -- formattedRow = BX.render $ Data.List.foldr (\colname_box accum -> accum BX.<+> colname_box) BX.nullBox formattedList
             formattedRow = Data.List.foldr (\colname accum -> colname ++ accum) "" formattedList
             
-            listOfLines = Data.List.map (\c -> Data.List.take (Data.List.length c) (repeat '~')) listOfColNames
+            listOfLines = Data.List.map (\c -> Data.List.take (Data.List.length (T.unpack c)) (repeat '~')) listOfColNames
+            --listOfLines = Data.List.map (\c -> T.replicate (T.length c) "~") listOfColNames
           --  listOfLinesCont = Data.List.map (\c -> Data.List.take (Data.List.length c) (repeat '-')) listOfColNames
             --formattedLines = Data.List.map (\(w,l) -> BX.para BX.left (w +spaceSeparatorWidth) l) (Data.List.zip widths listOfLines)
             formattedLines = Data.List.map (\(w,l) -> addSpace (w - (Data.List.length l) + spaceSeparatorWidth) l) (Data.List.zip widths listOfLines)
+            --formattedLines = Data.List.map (\(w,l) -> T.pack $ addSpace (w - (T.length l) + spaceSeparatorWidth) (T.unpack l)) (Data.List.zip widths listOfLines)
           -- formattedLinesCont = Data.List.map (\(w,l) -> addCharacter (w - (Data.List.length l) + spaceSeparatorWidth) '-' l) (Data.List.zip widths listOfLinesCont)
             -- formattedRowOfLines = BX.render $ Data.List.foldr (\line_box accum -> accum BX.<+> line_box) BX.nullBox formattedLines
             formattedRowOfLines = Data.List.foldr (\line accum -> line ++ accum) "" formattedLines

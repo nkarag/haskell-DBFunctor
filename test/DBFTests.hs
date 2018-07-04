@@ -11,7 +11,7 @@ module Main where
 
 import qualified RTable.Data.CSV as C
 import qualified RTable.Core as T
-import qualified Etl.Core as E
+import qualified Etl.Internal.Core as E
 import Etl.Julius
 
 --import RTable
@@ -72,7 +72,7 @@ main = do
                                         []  -- list of unique keys
         -- *** test CSV to RTable conversion                                        
         rtab = C.toRTable rtmdata csv
-        rtabNew = T.restrictNrows (read n) rtab
+        rtabNew = T.limit (read n) rtab
         csvNew = C.fromRTable rtmdata rtabNew   
 
         -- *** test RFilter & RProjection operation

@@ -1,6 +1,8 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import  RTable.Core         (RTableMData ,ColumnDType (..) ,createRTableMData, restrictNrows, printfRTable, genRTupleFormat, genDefaultColFormatMap, toText, (<!>))
+-- import  RTable.Core         (RTableMData ,ColumnDType (..) ,createRTableMData, restrictNrows, printfRTable, genRTupleFormat, genDefaultColFormatMap, toText, (<!>))
 import  RTable.Data.CSV     (CSV, readCSV, writeCSV, toRTable) -- MyType (..) )
 import  Etl.Julius          
 
@@ -40,8 +42,8 @@ main = do
         
         -- create source RTable from source csv 
         src_DBTab = toRTable src_DBTab_MData srcCSV      
-        -- get only the first 100 rows
-        src_DBTab_10rows = restrictNrows 10 src_DBTab
+        -- get only the first 10 rows
+        src_DBTab_10rows = limit 10 src_DBTab
         -- select all tables starting with a B
         tabs_with_B = juliusToRTable $
                 EtlMapStart
@@ -58,16 +60,16 @@ main = do
     putStrLn "\nThese are the fisrt 10 rows of the source table:\n"
     -- print source RTable first 100 rows
     printfRTable (  
-                    -- this is the equivalent when pinting on the screen to a list of columns in a SELECT clause in SQL
+                    -- this is the equivalent when printing on the screen to a list of columns in a SELECT clause in SQL
                     genRTupleFormat ["OWNER", "TABLE_NAME", "TABLESPACE_NAME", "STATUS", "NUM_ROWS", "BLOCKS", "LAST_ANALYZED"] genDefaultColFormatMap
                  ) $ src_DBTab_10rows
 
 
 
     putStrLn "\nThese are the tables that start with a \"B\":\n"
-    -- print source RTable first 100 rows
+    -- print RTuples with table_names that start with a 'B'
     printfRTable (  
-                    -- this is the equivalent when pinting on the screen to a list of columns in a SELECT clause in SQL
+                    -- this is the equivalent when printing on the screen to a list of columns in a SELECT clause in SQL
                     genRTupleFormat ["OWNER", "TABLE_NAME"] genDefaultColFormatMap
                  ) $ tabs_with_B
 
