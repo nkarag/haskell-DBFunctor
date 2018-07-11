@@ -23,7 +23,7 @@ data processing) and the result can be turned into the original format (e.g., CS
 tool for expressing complex data transfromations in Haskell. Moreover, the Julius language includes a clause for the __Column Mapping__ ('RColMapping') concept, which
 is a construct used in ETL tools and enables arbitrary transformations at the column level and the creation of derived columns based on arbitrary expressions on the existing ones. 
 Finally, the ad hoc combination of relational operations and Column Mappings, chained in an data transformation flow, implements the concept of the __ETL Mapping__ ('ETLMapping'), 
-which is the core unit in al ETL tools and is implemented in the "ETL.Internal.Core" module. For the relational alebra operations, Julius exploits the functions in the "RTable.Core" 
+which is the core unit in al ETL tools and is implemented in the "ETL.Internal.Core" module. For the relational algebra operations, Julius exploits the functions in the "RTable.Core" 
 module, which also exports it.
 
 The Julius EDSL is the recommended method for expressing ETL flows in Haskell, as well as doing any data analysis task within the "DBFunctor" package. "Etl.Julius" is a self-sufficient 

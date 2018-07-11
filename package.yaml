@@ -11,7 +11,7 @@ extra-source-files:
 - ChangeLog.md
 
 # Metadata used when publishing your package
-synopsis:         DBFunctor - Functional Data Management. Database-less, Type-Safe, Data Processing (ETL/ELT) in Haskell
+synopsis:         DBFunctor - Functional Data Management =>  ETL/ELT Data Processing in Haskell
 category:         ETL
 
 # To avoid duplicated efforts in documentation and dealing with the
