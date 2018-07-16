@@ -6,17 +6,28 @@ It simply means that whenever you have a ***data analysis*, *data preparation*, 
 ### Main Features
  1. **Julius: An Embedded Domain Specific (EDSL) Language for ETL**
 Provides an intuitive Embedded Domain Specific (EDSL) Language called *Julius* for expressing complex data flows but also for performing SQL-like data analysis.
-2. **Supports all known relational operations**
+ 2. **Supports all known relational operations**
 Julius supports all known relational operations (selection, projection, inner/outer join, grouping, ordering, aggregation etc.)
-3. **Provides the ETL Mapping and other typical ETL constructs**
-Julius implements typical ETL constructs such the *Column Mapping*, the *ETL Mapping* and common *Workflow operations*.
-4. **Applicable to all kinds of tabular data**
+ 3. **Provides the ETL Mapping and other typical ETL constructs**
+Julius implements typical ETL constructs such the *Column Mapping* and the *ETL Mapping*.
+ 4. **Applicable to all kinds of tabular data**
 It is applicable to all kinds of "tabular data" (see explanation below)
-5. **In-memory, database-less data processing**
+ 5. **In-memory, database-less data processing**
 Data transformations or queries can run *in-memory*, within your Haskell code, without the need for a database to process your data.  
 6. **Offloading to a database for heavy queries/data transformations**
 In addition, a query or data transformation  can be *offloaded to a Database*, when data don't fit in memory, or heavy data processing over large volumes of data is required. The result can be fetched into the client's memory  (i.e., where your haskell code runs) in the `RTable` data structure  (see below), or stored in a database staging table.
-7. **"Declarative ETL"**
+ 7. **Workflow Operations**
+Julius provides common workflow operations. Workflows provide the ability to combine the evaluation of several different Julius Expressions (i.e., data pipelines) in an arbitrary logic. Examples of such operations include:
+ - Ability to handle a failure of some operation in a Julius expression:
+	 - retry the failed operation (after corrective actions have taken place) and continue the evaluation of the Julius expression from this point onward.
+	 - skip the failed operation and move on with the rest operations in the pipeline.
+	 - restart the Julius expression from the beginning
+	 - terminate the Julius expression and skip all pending operations
+ - Ability to start a Julius expression based on the success or failure result of another one
+ - Ability to fork several different Julius expressions that will run concurrently
+ - Conditional execution of Julius expressions and iteration functionality
+ - Workflow hierarchy (i.e., flows, subflows etc.)
+ 8. **"Declarative ETL"**
 Enables *declarative ETL* implementation  in the same sense that SQL is declarative for querying data (see more below).
 ### Typical examples of DBFunctor use-cases
  - **Build database-less Haskell apps.** Build your data processing haskell apps without the need to import your data in a database for querying functionality or any for executing any data transformations. Analyze your CSV files in-place with plain haskell code (*for Haskellers!*).
@@ -40,7 +51,7 @@ These two functions implement the "logic" of transforming data type `a` to/from 
 By implementing these two functions, data type `a` essentially becomes an instance of the type `class RTabular` and thus can be transformed with the  DBFunctor package. Currently, we have implemented a CSV data type (any delimeter allowed), based one the [Cassava](https://github.com/haskell-hvr/cassava) library, in order to enable data transformations over CSV files.
 ### Current Status and Roadmap
 Currently (version DBFunctor-0.1.0.0), the DBFunctor package **is stable for in-memory data transformation and queries of CSV files**  (any delimiter allowed), with the **Julius EDSL** (module Etl.Julius) , or directly via RTable functions (module RTable.Core). The use of the Julius language is strongly recommended because it simplifies greatly and standardizes the creation of complex ETL flows.
-All in all, currently main features from 1 to 5 (from the list above) have been implemented and main features 6 to 7 are under implementation and will be released in a future version. 
+All in all, currently main features from #1 to #5 (from the list above) have been implemented and main features > #5  are future work that will be released in later versions. 
 ### Future Vision -> Declarative ETL
 Our ultimate goal is, eventually to make DBFunctor the **first *Declarative library for ETL/ELT, or data processing in general***, by exploiting the virtues of functional programming and Haskell strong type system in particular.
 Here we use "declarative"  in the same sense that SQL is a declarative language for querying data. (You only have to state what data you want to be returned and you don't care about how this will be accomplished - the DBMS engine does this for you behind the scenes).
