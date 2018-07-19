@@ -142,7 +142,7 @@ main = do
    in the data processing to use the 'NamedMap' constructor. This way you have your data flow logic in a single expression, with identifiable separate steps, which you can
    reference and exploit further as intermediate results in other expressions (see also relevant example below).
 [-- 4.] Each Julius expression must be evaluated into an 'RTable' and returned to the caller of the ETL code (in our case this is @main@)
-[-- 5.] Here is where we rread our input for the ETL. In our case, this is a simple CSV file that we read with the helop of the 'readCSV' function.
+[-- 5.] Here is where we read our input for the ETL. In our case, this is a simple CSV file that we read with the helop of the 'readCSV' function.
 [-- 6.] We convert our input CSV to an 'RTable', with the 'toRTable' and pass it as input to our ETL code.
 [-- 7.] We print our target 'RTable' on screen using the 'printfRTable' function for formatted printed ('Text.Printf.printf' like) of 'RTable's.
 [-- 8.] We save our target 'RTable' to a CSV file with the 'fromRTable' function.

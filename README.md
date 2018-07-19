@@ -7,7 +7,7 @@ It simply means that whenever you have a ***data analysis*, *data preparation*, 
  1. **Julius: An Embedded Domain Specific (EDSL) Language for ETL**
 Provides an intuitive Embedded Domain Specific (EDSL) Language called *Julius* for expressing complex data flows but also for performing SQL-like data analysis.
  2. **Supports all known relational operations**
-Julius supports all known relational operations (selection, projection, inner/outer join, grouping, ordering, aggregation etc.)
+Julius supports all known relational operations (selection, projection, inner/outer join, grouping, ordering, aggregation, set operations etc.)
  3. **Provides the ETL Mapping and other typical ETL constructs**
 Julius implements typical ETL constructs such the *Column Mapping* and the *ETL Mapping*.
  4. **Applicable to all kinds of tabular data**
@@ -259,8 +259,6 @@ main = do
 ### An ETL Example: Create a simple Star-Schema over CSV files (in progress)
 In this more comprehensive example, we will show how we can create a simple Star-Schema from a CSV file, which plays the role of our data source. I.e., we will implement a very simple ETL flow with the Julius EDSL. [read more
 ](https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/ETL-EXAMPLE.md).
-### Concepts
-https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/CONCEPTS.md
 ### Julius Tutorial (in progress)
 https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md
 ### How to run

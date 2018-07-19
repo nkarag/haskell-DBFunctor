@@ -18,6 +18,7 @@ In this tutorial, we will show the basics of Julius in order to help someone to 
 ## The Column Mapping Clause
 ## Putting it all together
 ## Naming Intermediate Results
+## Evaluating a Julius Expression
 ## Printing Results
 ### Default Formatted Printing
 ### Formatted Printing
