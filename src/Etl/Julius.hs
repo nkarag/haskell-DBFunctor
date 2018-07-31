@@ -496,7 +496,7 @@ module Etl.Julius (
     ,TabExprJoin (..)    
     ,ByGenUnaryOperation (..)
     ,ByGenBinaryOperation (..)
-    -- ** Julius Expression Evaluation
+    -- * Julius Expression Evaluation
     ,evalJulius
     ,juliusToRTable
     ,juliusToResult
