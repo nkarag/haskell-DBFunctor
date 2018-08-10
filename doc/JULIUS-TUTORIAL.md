@@ -56,16 +56,16 @@ We will comeback to Julius expressions in more detail, but first lets see how ca
 <a  name="ddl"></a> 
 ## Julius DDL: Creating an RTable from a CSV file
 In order to create an RTable from your data (i.e., load your data into memory into the RTable data structure), you only need to call function `toRTable`:
-
+```haskell
     toRTable :: (RTabular a) => RTableMData -> a -> RTable
-
+```
 `toRTable` is a method of the `RTabluar` type class, which resides in the RTable.Core module of the DBFunctor package. So, if your data are loaded in a data type `a` , which is an instance of the `RTabular` type class, then the only thing you have to do, is to call `toRTable`, in order to get a new RTable loaded with your data. Of course `toRTable` also requires as input the necessary RTable metadata (`RTableMData`), which define the RTable's columns and corresponding data types (similar to an SQL `CREATE TABLE`DDL statement).
 
 For example, assume we have a csv file "mydata.csv" with a data set that we want to convert into an RTable, in order to be able to process it with some Julius expression.
 The first step is to read the csv file into some data type `a` that is an instance of the `RTabular` type class. In module, RTable.Data.CSV of the DBfunctor package, we have defined data type `CSV` to represent a CSV file and have made it an instance of `RTabular`. So the only thing you have to do is:
 1. Read the csv file from disk into the CSV data type
 2. Define the RTable metadata (i.e., its columns and corresponding data types) using function `createRTableMData` exported from the Etl.Julius module of the DBFunctor package.
-```
+```haskell
 createRTableMData :: 
 	(RTableName, [(ColumnName, ColumnDType)])	 
 	-> [ColumnName]		--	Primary Key. [] if no PK exists
@@ -74,7 +74,7 @@ createRTableMData ::
 ```
 3. Use `toRTable` to convert the CSV into an RTable
 These steps are depicted in the following code snippet.
-```
+```haskell
 import     Etl.Julius
 import     RTable.Data.CSV     (CSV, readCSV, writeCSV, toRTable)
 
@@ -113,7 +113,7 @@ Lets see the syntax of a Relational Algebra Expression.
 <a  name="rae"></a> 
 ### Relational Algebra Expressions
 A relational algebra expression in Julius EDSL is a sequence of relational operation clauses connected with the `:.` connector.  The first operation is always `ROpStart`, which represents an "empty" operation and is there to signify the beginning of the expression. Of course as we have said before the expression must follow an `EtlR $` clause. Here is the typical structure of a relational algebra expression in Julius:
-```
+```haskell
 EtlMapStart
         :-> (EtlR $
                 ROpStart  
@@ -155,7 +155,7 @@ Syntax:
 <RPredicate>	::= RTuple -> Bool		(* An RPredicate is simply a function of type RTuple -> Bool *)
 ```
 Example:
-```
+```haskell
 juliusToRTable $           
     EtlMapStart
     :-> (EtlR $
@@ -168,7 +168,7 @@ myFpred = \t -> t <!> "category" == "FOOD:SUPER_MARKET"
                 t <!> "amount" > 50.00
 ```
 SQL equivalent:
-```
+```SQL
 SELECT * 
 FROM expenses exp 
 WHERE   exp.category = 'FOOD:SUPER_MARKET' 
@@ -176,7 +176,7 @@ WHERE   exp.category = 'FOOD:SUPER_MARKET'
 ```
 Notes:
 1. In order to access the value stored in a specific column in an RTuple, we can use the `<!>` function or the `<!!>` function. The former returns the value, while the latter returns the value wrapped within a Maybe, in the case that the column is not found. (Check out the documentation of the RTable.Core module of the DBFunctor package). Here are the corresponding signatures:
-```
+```haskell
 (<!>)	:: RTuple -> ColumnName -> RDataType	
 (<!!>)	:: RTuple -> ColumnName -> Maybe RDataType	
 
@@ -202,7 +202,7 @@ Syntax:
 <RTable> 		::= RTable
 ```
 Example:
-```
+```haskell
 juliusToRTable $           
     EtlMapStart
     :-> (EtlR $
@@ -211,7 +211,7 @@ juliusToRTable $
             :. (Select ["TxTimeStamp", "Category","Description", "Amount"] $ From Previous))
 ```
 SQL equivalent:
-```
+```SQL
 SELECT "TxTimeStamp", "Category", "Description", "Amount" 
 FROM expenses exp 
 WHERE   exp.category = 'FOOD:SUPER_MARKET' 
@@ -247,7 +247,7 @@ Syntax:
 <RJoinPredicate>	::= RTuple -> RTuple -> Bool
 ```
 Example:
-```
+```haskell
 juliusToRTable $           
     EtlMapStart
     :-> (EtlR $
@@ -256,7 +256,7 @@ juliusToRTable $
 		            JoinOn (\tl tr -> tl <!> "category" == tr <!> "category")))
 ```
 SQL equivalent:
-```
+```SQL
 SELECT * 
 FROM expenses exp JOIN categories cat 
 		ON exp.category = cat.category
@@ -300,7 +300,7 @@ Syntax:
 <RJoinPredicate>	::= RTuple -> RTuple -> Bool
 ```
 Example:
-```
+```haskell
 juliusToRTable $           
     EtlMapStart
     :-> (EtlR $
@@ -317,7 +317,7 @@ juliusToRTable $
 
 ```
 SQL equivalent:
-```
+```sql
 SELECT * 
 FROM expenses exp LEFT JOIN categories cat 
 		ON exp.category_id = cat.category_id
@@ -359,7 +359,7 @@ Syntax:
 <RTable>			::= RTable
 ```
 Example:
-```
+```haskell
 juliusToRTable $           
     EtlMapStart
     :->	(EtlR $
@@ -371,7 +371,7 @@ juliusToRTable $
 		)       
 ```
 SQL equivalent:
-```
+```sql
 SELECT sum("Amount") as "TotalAmount", count("Tx_id") as "TxCount" 
 FROM expenses 
 ```
@@ -413,7 +413,7 @@ Syntax:
 
 ```
 Example:
-```
+```haskell
 juliusToRTable $           
     EtlMapStart
     :-> (EtlR $
@@ -425,7 +425,7 @@ juliusToRTable $
 		)      
 ```
 SQL equivalent:
-```
+```sql
 SELECT "Category",  sum("Amount") AS "TotalAmount"
 FROM expenses exp 
 GROUP BY  "Category" 
@@ -465,7 +465,7 @@ Syntax:
 <RTable>			::= RTable
 ```
 Example:
-```
+```haskell
 juliusToRTable $           
     EtlMapStart
     :-> (EtlR $
@@ -478,7 +478,7 @@ juliusToRTable $
 		)
 ```
 SQL equivalent:
-```
+```sql
 SELECT *
 FROM expenses
 WHERE
@@ -516,7 +516,7 @@ Syntax:
 
 ```
 Example:
-```
+```haskell
 juliusToRTable $           
     EtlMapStart
     :-> (EtlR $
@@ -526,7 +526,7 @@ juliusToRTable $
 		)
 ```
 SQL equivalent:
-```
+```sql
 SELECT *
 FROM expenses
 ORDER BY "Category", "TxDate" desc
@@ -565,7 +565,7 @@ Syntax:
 Example: 
 1. Add a surrogate key column and assign values to it.
 2. Append a delta RTable to a target RTable
-```
+```haskell
 -- 1.
 juliusToRTable $           
     EtlMapStart
@@ -585,7 +585,7 @@ juliusToRTable $
 		)
 ```
 SQL equivalent:
-```
+```sql
 -- 1.
 CREATE TABLE expenses_new AS
 	SELECT (rownum - 1) as "TxSK", t.*
@@ -597,7 +597,7 @@ INSERT /*+ append */ INTO rtabTarget
 ```
 Notes:
 - In the first example, we use function `addSurrogateKeyJ` from the Etl.Julius module of the DBFunctor package, as a generic unary RTable operation. This function adds a new column (a surrogate key column) to the input RTable and then assigns values (a monotonically increasing integer value) starting off from an initial value (in our case the initial value is 0). Here is the signature of the  `addSurrogateKeyJ` function
-```
+```haskell
 addSurrogateKeyJ :: Integral a     
 				=> ColumnName    	-- ^ The name of the surrogate key column
 				-> a            -- ^ The initial value of the Surrogate Key
@@ -605,7 +605,7 @@ addSurrogateKeyJ :: Integral a
 				-> RTable       -- ^ Output RTable
 ```
 - In the second example, we use function `appendRTableJ` from the Etl.Julius module of the DBFunctor package, as a generic binary RTable operation. This function appends the RTuples of an RTable to a target RTable. In our example, we assume that we have an RTable containing a daily delta (deltaTabFinal) and we append it to a target RTable (rtabTarget). Here is the signature of the `appendRTableJ` function.
-```
+```haskell
 appendRTableJ ::
 				RTable		-- ^ Target RTable
 			->  RTable 		-- ^ Input RTable
@@ -656,7 +656,7 @@ Example 1: Create a timestamp and a date column (target columns) from a text col
 In this example, we use a single source column ("Date"), which stores date values in a Text format (`RText` data constructor of the `RDataType` data type). We want to use this column and create two new (derived) columns, namely "TxTimeStamp" and "TxDate", that will convert the source date value into a timestamp (truncated at 00:00:00 time) and date data type respectively. 
 To this end, we provide a column transformation function ("dateTransformation") that converts the text value into a timestamp and a date, using the `RTime` and `RDate` data constructors of the `RDataType` data type of the RTable.Core module of the DBFunctor package.
 In addition, we specify (by the keyword `RemoveSrc`) that the source column should be removed from the result RTable and that the result RTable, will include all source RTuples (since the `FilterBy` clause includes a predicate that returns always True).
-```
+```haskell
 juliusToRTable $           
 	EtlMapStart
 	    :-> (EtlC $
@@ -673,7 +673,7 @@ juliusToRTable $
 			                     in [txtimestamp,txdate]
 ```
 Example 2: Create a derived (target) column "Margin" from two source columns, namely "Revenue" and "Cost". In the result RTable, we keep both of the source columns (`DontRemoveSrc`) and we don't filter any RTuples.
-```
+```haskell
 juliusToRTable $           
 	EtlMapStart
 	    :-> (EtlC $
@@ -724,7 +724,7 @@ In order to execute the ETL logic and produce the target RTable, we need to *eva
 ETLMappingExpr -> RTable
 ```
 Indeed, the basic Julius expression evaluation function, which is defined in the module Etl.Julius of the DBFunctor package is:
-```
+```haskell
 juliusToRTable :: ETLMappingExpr -> RTable
 ```
 We have used this function in all of our examples above. Of course, due to Haskell's laziness the actual evaluation of the Julius expression, takes place only when it is absolutely necessary, e.g., when we try to print the contents of an RTable to screen, or store it into a CSV file.
@@ -756,7 +756,7 @@ In the following diagram, we depict the dependencies for each one of the three t
 Fig 1. Dependencies for creating the target RTables (aka ETL Design).
 
 Now, if we follow Rule 1 from above, we can substitute each target RTable with an equivalent Julius expression. So we can do this:
-```
+```haskell
 trgTab1 = juliusToRTable julius1
 trgTab2 = juliusToRTable julius2
 trgTab3 = juliusToRTable julius3
@@ -775,7 +775,7 @@ __*Simple Guiding Rule 2*__
 _Order the evaluation of the Julius expressions based on their input RTable requirements._
 
 Lets write our Haskell ETL function that implements the ETL design of our running example:
-```
+```haskell
 import Etl.Julius
 
 etl :: RTable -> RTable -> [RTable]
