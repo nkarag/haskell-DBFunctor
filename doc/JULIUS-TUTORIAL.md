@@ -740,6 +740,7 @@ _Each target RTable that must be created* based on some ETL logic, can be replac
 
 ---
 Lets see how beautiful ETL code we can write in Haskell. Lets assume the following ETL Source-to-Target Design:
+
 |Data Sources		|ETL Design										|	Target Schema
 |:---							|:---														|:---
 |srcTab1, srcTab2	|[srcTab1] -> etl1								| -> trgTab1
