@@ -44,9 +44,10 @@ DBFunctor provides an in-memory data structure called `RTable`, which implements
 Moreover, it implements the concept of *Column Mapping* (for deriving new columns based on existing ones - by splitting , merging , or with any other possible combination using a lambda expression or a function to define the new value) and that of the *ETL Mapping*, which is the equivalent of a "mapping" in an ETL tool (like Informatica, Talend, Oracle Data Integrator, SSIS, Pentaho, etc.). With this powerful construct, one can **build arbitrary complex data pipelines**, which can enable any type of data transformations and all these **by writing Haskell code.**
 ### What Kinds of Data?
 With the term "tabular data" we mean any type of data that can be mapped to an RTable (e.g., CSV (or any other delimiter), DB Table/Query, JSON etc). Essentially, for a Haskell data type `a`to be "tabular", one must implement the following functions:
-
-    toRTable :: RTableMData -> a -> RTable
-    fromRTable :: RTableMData -> RTable -> a
+```haskell
+   toRTable :: RTableMData -> a -> RTable
+   fromRTable :: RTableMData -> RTable -> a
+```    
 These two functions implement the "logic" of transforming data type `a` to/from an RTable based on specific RTable Metadata, which specify the column names and data types of the RTable, as well as (optionally) the primary key constraint, and/or alternative unique constraints (i.e., similar information provided with a CREATE TABLE statement in SQL) .
 By implementing these two functions, data type `a` essentially becomes an instance of the type `class RTabular` and thus can be transformed with the  DBFunctor package. Currently, we have implemented a CSV data type (any delimeter allowed), based one the [Cassava](https://github.com/haskell-hvr/cassava) library, in order to enable data transformations over CSV files.
 ### Current Status and Roadmap
@@ -85,7 +86,7 @@ So  lets say we have a CSV file called test-data.csv. The file stores table meta
         APEX_030200,WWV_FLOW_ALT_CONFIG_DETAIL,SYSAUX,VALID,0,0,06/08/2012 16:22:33
 **1. Turn the CSV file into an RTable**
 The first thing we want to do is to read the file and turn it into an RTable. In order to do this we need to define the RTable Metadata, which is the same information one can provide in an SQL CREATE TABLE statement, i,e, column names, column data types and integrity constraints (Primary Key, Unique Key only - no Foreign Keys). So lets see how this is done:     
-
+```haskell
     -- Define table metadata
     src_DBTab_MData :: RTableMData
     src_DBTab_MData =
@@ -109,9 +110,9 @@ The first thing we want to do is to read the file and turn it into an RTable. In
          -- turn source csv to an RTable
          src_DBTab = toRTable src_DBTab_MData srcCSV
     ...
-
-We have used the following functions:
 ```
+We have used the following functions:
+```haskell
 -- | createRTableMData : creates RTableMData from input given in the form of a list
 --   We assume that the column order of the input list defines the fixed column order of the RTuple.
 createRTableMData ::
@@ -122,20 +123,22 @@ createRTableMData ::
 ```
 in order to define the RTable metadata.
 For reading the CSV file we have used:
-```
+```haskell
 -- | readCSV: reads a CSV file and returns a CSV data type (Treating CSV data as opaque byte strings)
 readCSV ::
     FilePath  -- ^ the CSV file
     -> IO CSV  -- ^ the output CSV type
 ```
 Finally, in order to turn the CSV data type into an RTable, we have used function:
-` toRTable :: RTableMData -> CSV -> RTable `
+```haskell
+toRTable :: RTableMData -> CSV -> RTable
+```
 which comes from the `RTabular` type class instance of the `CSV` data type.
  **2. Query the RTable**
 Once we have created an RTable, we can issue queries on it, or apply any type of data transformations. Note that due to immutability, each query or data transformation creates a new RTable.
  We will now issue the following query:
 We return all the rows, which correspond to some filter predicate - in particular all rows where the table_name starts with a 'B'. For this we use the Julius EDSL, in order to express the query and then with the function `juliusToRTable :: ETLMappingExpr -> RTable `, we evaluate the expression into an RTable.
-```
+```haskell
 tabs_with_B = juliusToRTable $
    EtlMapStart
    :-> (EtlR $
@@ -150,7 +153,7 @@ tabs_with_B = juliusToRTable $
    )
 ```
 A Julius expression is a *data processing chain* consisting of various Relational Algebra operations `(EtlR $ ...)`  and/or column mappings `(EtlC $ ...)` connected together via the `:->` data constructor,  of the form (Julius expressions are read *from top-to-bottom  or from left-to-right*):
-```
+```haskell
 myJulExpression =
 	EtlMapStart
 	:-> (EtlC $ ...)  -- this is a Column Mapping
@@ -169,7 +172,7 @@ myJulExpression =
 	...
 ```
 In our example, the Julius expression consists only of two relational algebra operations: a `Filter` operation, which uses an RTuple  predicate of the form 	`RTuple -> Bool` to filter out RTuples (i.e., rows) that dont satisfy this predicate. The predicate is expressed as the lambda expression:
-```
+```haskell
 FilterBy (\t ->	let fstChar = Data.Text.take 1 $ fromJust $ toText (t <!> "TABLE_NAME")
 				in fstChar == (pack "B"))
 ```
@@ -193,7 +196,7 @@ SYS        BOOTSTRAP$
 -------------------------------------
 ```
 Here is the complete example.
-```
+```haskell
 module Main where
 
 import  RTable.Core         (RTableMData ,ColumnDType (..) ,createRTableMData, printfRTable, genRTupleFormat, genDefaultColFormatMap, toText, (<!>))
