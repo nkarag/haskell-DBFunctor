@@ -423,7 +423,8 @@ module RTable.Core (
     ,rTimeStampToRText
     ,stdTimestampFormat
     ,stdDateFormat
-    -- ** Character/Text   
+    -- ** Character/Text  
+    ,rdtappend  
     ,stripRText
     ,removeCharAroundRText
     -- ** NULL-Related
@@ -1014,6 +1015,14 @@ stripRText ::
         -> RDataType
 stripRText (RText t) = RText $ T.strip t
 stripRText _ = Null
+
+-- | Concatenates two Text 'RDataTypes', in all other cases of 'RDataType' it returns 'Null'.
+rdtappend :: 
+    RDataType 
+    -> RDataType
+    -> RDataType
+rdtappend (RText t1) (RText t2) = RText (t1 `T.append` t2)
+rdtappend _ _ = Null
 
 
 -- | Helper function to remove a character around (from both beginning and end) of an (RText t) value
@@ -2129,9 +2138,10 @@ runLeftJoin jpred leftRTab rtab = do
 -- @ 
 -- where tabLeft is the preserving table can be defined as:
 -- the Union between the following two RTables:
---  A. The result of the inner join: tabLeft INNER JOIN tabRight ON joinPred
---  B. The rows from the preserving table (tabLeft) that DONT satisfy the join condition, enhanced with the columns
---     of tabRight returning Null values.
+--
+-- * The result of the inner join: tabLeft INNER JOIN tabRight ON joinPred
+-- * The rows from the preserving table (tabLeft) that DONT satisfy the join condition, enhanced with the columns of tabRight returning Null values.
+--
 --  The common columns will appear from both tables but only the left table column's will retain their original name. 
 runLeftJoin ::
     RJoinPredicate
@@ -2176,9 +2186,10 @@ rJ = runRightJoin
 -- @ 
 -- where tabRight is the preserving table can be defined as:
 -- the Union between the following two RTables:
---  A. The result of the inner join: tabLeft INNER JOIN tabRight ON joinPred
---  B. The rows from the preserving table (tabRight) that DONT satisfy the join condition, enhanced with the columns
---     of tabLeft returning Null values.
+--
+-- * The result of the inner join: tabLeft INNER JOIN tabRight ON joinPred
+-- * The rows from the preserving table (tabRight) that DONT satisfy the join condition, enhanced with the columns of tabLeft returning Null values.
+--
 --  The common columns will appear from both tables but only the right table column's will retain their original name. 
 runRightJoin ::
     RJoinPredicate

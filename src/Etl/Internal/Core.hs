@@ -37,12 +37,6 @@ module Etl.Internal.Core
         ,createLeafETLMapLD
         ,createLeafBinETLMapLD
         ,connectETLMapLD
-        -- * Various ETL Operations
-        ,rdtappend 
-        ,addSurrogateKey    
-        ,addSurrogateKeyJ    
-        ,appendRTable   
-        ,appendRTableJ
     ) where 
 
 -- Data.RTable
@@ -127,9 +121,13 @@ createColMapping srcCols trgCols xForm remove fPred =  RMapNxM {srcColGrp = srcC
 
 
 -- | runCM operator executes an RColMapping
+-- If a target-column has the same name with a source-column and a DontRemoveSrc (i.e., removeSrcCol == No) has been specified, then the (target-column, target-value) key-value pair,
+-- overwrites the corresponding (source-column, source-value) key-value pair
 runCM = runColMapping
 
 -- | Apply an RColMapping to a source RTable and produce a new RTable.
+-- If a target-column has the same name with a source-column and a DontRemoveSrc (i.e., removeSrcCol == No) has been specified, then the (target-column, target-value) key-value pair,
+-- overwrites the corresponding (source-column, source-value) key-value pair
 runColMapping :: RColMapping -> RTable -> RTable
 runColMapping ColMapEmpty rtabS = rtabS
 runColMapping rmap rtabS = 
@@ -538,79 +536,7 @@ runETLmapping etlMap :=> etlOp = runETLmapping etlMap
 -- *  and pre-cooked Column Mappings
 -- ##################################################
 
--- | Concatenates two Text 'RDataTypes', in all other cases of 'RDataType' it returns 'Null'.
-rdtappend :: 
-    RDataType 
-    -> RDataType
-    -> RDataType
-rdtappend (RText t1) (RText t2) = RText (t1 `T.append` t2)
-rdtappend _ _ = Null
 
-
--- | Returns an ETL Operation that adds a surrogate key (SK) column to an 'RTable' and
--- fills each row with a SK value.
-addSurrogateKey :: Integral a =>    
-       ColumnName    -- ^ The name of the surrogate key column
-    -- -> Integer       -- ^ The initial value of the Surrogate Key will be the value of this parameter    
-    -> a             -- ^ The initial value of the Surrogate Key will be the value of this parameter    
-    -> ETLOperation  -- ^ Output ETL operation which encapsulates the add surrogate key column mapping
-addSurrogateKey cname initVal  =   
-    let combOp = RCombinedOp { rcombOp = updateSKvalue . (addColumn cname (RInt (fromIntegral initVal)))  }
-            where
-                -- updateSKvalue :: RTable -> RTable
-                -- updateSKvalue rt = V.foldr' ( \rtup trgRtab ->  let 
-                --                                                 newTuple = updateRTuple cname (rtup<!>cname + RInt 1) rtup
-                --                                         in appendRTuple newTuple trgRtab 
-                --                     ) emptyRTable rt
-                updateSKvalue :: RTable -> RTable
-                updateSKvalue rt =
-                        let     indexedRTab = V.indexed rt -- this returns a: Vector (Int, RTuple) (pairs each RTuple with its index in the RTable)
-                        in V.zipWith (\tupsrc (val, _) -> upsertRTuple cname (RInt (fromIntegral initVal) + RInt (fromIntegral val)) tupsrc ) rt indexedRTab
-    in ETLrOp combOp 
-
--- | Returns an 'UnaryRTableOperation' ('RTable' -> 'RTable') that adds a surrogate key (SK) column to an 'RTable' and
--- fills each row with a SK value. It  primarily  is intended to be used within a Julius expression
-addSurrogateKeyJ :: Integral a =>    
-       ColumnName    -- ^ The name of the surrogate key column
-    -- -> Integer       -- ^ The initial value of the Surrogate Key will be the value of this parameter    
-    -> a             -- ^ The initial value of the Surrogate Key will be the value of this parameter    
-    -> RTable        -- ^ Input RTable
-    -> RTable        -- ^ Output RTable
-addSurrogateKeyJ cname initVal  =   
-    updateSKvalue . (addColumn cname (RInt (fromIntegral initVal))) 
-            where
-                -- updateSKvalue :: RTable -> RTable
-                -- updateSKvalue rt = V.foldr' ( \rtup trgRtab ->  let 
-                --                                                 newTuple = updateRTuple cname (rtup<!>cname + RInt 1) rtup
-                --                                         in appendRTuple newTuple trgRtab 
-                --                     ) emptyRTable rt
-                updateSKvalue :: RTable -> RTable
-                updateSKvalue rt =
-                        let     indexedRTab = V.indexed rt -- this returns a: Vector (Int, RTuple) (pairs each RTuple with its index in the RTable)
-                        in V.zipWith (\tupsrc (val, _) -> upsertRTuple cname (RInt (fromIntegral initVal) + RInt (fromIntegral val)) tupsrc ) rt indexedRTab
-
-
--- | Returns an ETL Operation that Appends an 'RTable' to a target 'RTable' 
-appendRTable ::
-        ETLOperation  -- ^ Output ETL Operation
-appendRTable  = 
-    let binOp = RBinOp { rbinOp = flip (V.++) } -- we need to flip the input parameters so that when we embed this operation in an ETL mapping
-                                                -- then the delta table will be appended to the target table.
-    in ETLrOp binOp
-
-
--- | Returns a 'BinaryRTableOperation' ('RTable' -> 'RTable' -> 'RTable') that Appends an 'RTable' to a target 'RTable'.
--- It is primarily intended to be used within a Julius expression. For example:
---
--- @
---   GenBinaryOp (TabL rtab1) (Tab $ rtab2) $ ByBinaryOp RTE.appendRTableJ
--- @
---
-appendRTableJ ::
-            RTable -- ^ Target RTable
-        ->  RTable -- ^ Input RTable
-        ->  RTable -- ^ Output RTable 
-appendRTableJ  = (V.++) 
 
 
 -- | Returns an ETL Operation that adds a surrogate key column to an RTable

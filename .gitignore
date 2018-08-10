@@ -5,7 +5,7 @@ misc/
 *~
 todo.txt
 DBFunctor.hidecabal
-doc/star_schema.pptx
+doc/*.pptx
 test/data/usefull_material.docx
 app/test-data.sql
 dbfunctor.png
