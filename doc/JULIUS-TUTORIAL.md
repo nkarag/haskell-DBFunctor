@@ -19,11 +19,11 @@
  5. [Beyond Relational Algebra](#bra)
 	 1. [Ordering](#ordering)
 	 2. [Generic RTable Operations as Functions](#roaf)
- 6. [ETL in Haskell](#eih)
+ 6. [ETL in Haskell and Julius EDSL](#eih)
 	 1.  [Column Transformations: The Column Mapping Clause](#colmap)
 	 2. [Julius Expressions and the Ubiquitous ETL Mapping ](#etlm)
 	 3. [Evaluating a Julius Expression](#evaljul)
-	 4. [Writing ETL Code in Haskell](#etlcode)
+	 4. [Writing ETL Code in Haskell and Julius EDSL](#etlcode)
  7. [Complex Queries as Julius Expressions](#cqaje)
 	 1. [Subqueries](#subqueries)
 	 2. [Naming Intermediate Results](#intresults)
@@ -612,7 +612,7 @@ appendRTableJ ::
 			->  RTable 		-- ^ Output RTable
 ```
 <a name="eih"></a>
-## ETL in Haskell
+## ETL in Haskell and Julius EDSL
 <a name="colmap"></a>
 ### Column Transformations: The Column Mapping Clause
 **Meaning**:  A Column Mapping is the main ETL/ELT construct for defining *a column-level transformation*. Essentially with a Column Mapping, we can create one or more new (aka derived) column(s) , based on an arbitrary transformation function that maps a set of input columns (_Source Columns_) to a set of output columns (_Target Columns_):
@@ -729,22 +729,22 @@ juliusToRTable :: ETLMappingExpr -> RTable
 ```
 We have used this function in all of our examples above. Of course, due to Haskell's laziness the actual evaluation of the Julius expression, takes place only when it is absolutely necessary, e.g., when we try to print the contents of an RTable to screen, or store it into a CSV file.
 <a name="etlcode"></a>
-### Writing ETL Code in Haskell
+### Writing ETL Code in Haskell and Julius EDSL
 We have seen that *behind each Julius expression lies a target RTable*. This is important to remember, because when we want to write our ETL code in Haskell and Julius EDSL, then we can follow this simple rule:
 
 __*Simple Guiding Rule 1*__
 _Each target RTable that must be created* based on some ETL logic, can be replaced with a_ `juliusToRTable <julius expresssion>` _expression_
 
 ---
-(*)	We say "created" instead of "loaded", because since Haskell is immutable, the evaluation of a Julius expression, always result into a new RTable.
+(*)	We say "created" instead of "loaded", because since Haskell is immutable, the evaluation of a Julius expression, always results into a new RTable.
 
 ---
 Lets see how beautiful ETL code we can write in Haskell. Lets assume the following ETL Source-to-Target Design:
 ```
 [Data Sources] 					[ETL Design]					[Target Schema]
-srcTab1					[srcTab1] 		  		  -> <etl1>		trgTab1
-srcTab2			-->		[trgTab1,srcTab2] 		  -> <etl2>	--> trgTab2
-						[srcTab1,trgTab1,trgTab2] -> <etl3>		trgTab3
+srcTab1					[srcTab1]					-> <etl1>		trgTab1
+srcTab2			-->		[trgTab1,srcTab2]			-> <etl2>	--> trgTab2
+						[srcTab1,trgTab1,trgTab2]	-> <etl3>		trgTab3
 ```
 At the right end, we see three target RTables (trgTab1, trgTab2, trgTab3). These should be the output  of our ETL code. In order to create each one of these, we need to run some "etl-logic code", etl1, etl2 and etl3 respectively. 
 Each etl code might require as input one of the source RTables (srcTab1, srcTab2) and/or some of the target RTables (trgTab1, trgTab2, trgTab3). The exact dependencies for each etl code, appear in the middle column named "ETL Design".
@@ -753,21 +753,21 @@ In the following diagram, we depict the dependencies for each one of the three t
 ![target_rtab_dependencies](./etl_code_example1.jpg)
 Fig 1. Dependencies for creating the target RTables (aka ETL Design).
 
-Now, if we follow Rule 1 from above, we can substitute each target RTable with an equivalent julius expression. So we can do this:
+Now, if we follow Rule 1 from above, we can substitute each target RTable with an equivalent Julius expression. So we can do this:
 ```
 trgTab1 = juliusToRTable julius1
 trgTab2 = juliusToRTable julius2
 trgTab3 = juliusToRTable julius3
 ```  
 where julius1, julius2 and julius3 are the equivalent Julius expressions behind each target RTable. Remember that: *each Julius expression is essentially (input RTables + ETL logic)*. The necessary input RTables for each Julius expression, are clearly stated in the middle column named "ETL Design", in the table above, but also can be seen in Fig 1.
-The next step is to order the evaluation of the Julius expressions, in such a way so that the input RTable requirements of each one are met. This can be depicted in Fig. 2.
+The next step is to order the evaluation of the Julius expressions, in such a way, that the input RTable requirements of each one are met. This can be depicted in Fig. 2.
 
 ![julius_ordering](./etl_code_example2.jpg)
 Fig 2. Evaluation order of Julius expressions according to input RTable requirements
 
-In Fig 2, we can see that each target RTable is created by the evaluation of a specific Julius expression (denoted with a bold black arrow). At the bottom of the figure, we can see the evaluation order of the three Julius expressions. First we evaluate julius1, since its input requirements are just a source RTable and has no dependency to other julius evaluation. Then, we proceed with julius2, which requires the result of the evaluation of julius1. Finally, we evaluate julius3, which requires both the evaluation of the other two.
+In Fig 2, we can see that each target RTable is created by the evaluation of a specific Julius expression (denoted with a bold black arrow). At the bottom of the figure, we can see the evaluation order of the three Julius expressions. First we evaluate julius1, since its input requirements are just a source RTable and has no dependency to other Julius expression evaluation. Then, we proceed with julius2, which requires the result of the evaluation of julius1. Finally, we evaluate julius3, which requires both the evaluation of the other two.
 
-Now  we can state our second guiding rule for writing ETL code with Haskell and Julius:
+Now  we can state our second guiding rule for writing ETL code in Haskell and Julius:
 
 __*Simple Guiding Rule 2*__
 _Order the evaluation of the Julius expressions based on their input RTable requirements._
@@ -812,19 +812,6 @@ subquery factory (WITH clause)
 #### Formatted Printing
 <a name="output"></a>
 ### Output Result to CSV file
-
-
- 6. [ETL in Haskell](#eih)
-	 1.  [Column Transformations: The Column Mapping Clause](#colmap)
-	 2. [Julius Expressions and the Ubiquitous ETL Mapping ](#etlm)
-	 3. [Evaluating a Julius Expression](#evaljul)
-	 4. [Writing ETL Code in Haskell](#etlcode)
- 7. [Complex Queries as Julius Expressions](#cqaje)
-	 1. [Subqueries](#subqueries)
-	 2. [Naming Intermediate Results](#intresults)
- 8. [Output](#output)
-	 9. [Printing Results](#print)
-	 10. [Output Result to CSV file](#output) 
 
 
 > Written with [StackEdit](https://stackedit.io/).
