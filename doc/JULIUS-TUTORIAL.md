@@ -740,12 +740,13 @@ _Each target RTable that must be created* based on some ETL logic, can be replac
 
 ---
 Lets see how beautiful ETL code we can write in Haskell. Lets assume the following ETL Source-to-Target Design:
-```
-[Data Sources] 					[ETL Design]					[Target Schema]
-srcTab1					[srcTab1]					-> <etl1>		trgTab1
-srcTab2			-->		[trgTab1,srcTab2]			-> <etl2>	--> trgTab2
-						[srcTab1,trgTab1,trgTab2]	-> <etl3>		trgTab3
-```
+|Data Sources		|ETL Design										|	Target Schema
+|:---							|:---														|:---
+|srcTab1, srcTab2	|[srcTab1] -> etl1								| -> trgTab1
+| 								|[trgTab1, srcTab2] -> etl2					| -> trgTab2	
+|								|[srcTab1, trgTab1, trgTab2] -> etl3	| -> trgTab3
+
+
 At the right end, we see three target RTables (trgTab1, trgTab2, trgTab3). These should be the output  of our ETL code. In order to create each one of these, we need to run some "etl-logic code", etl1, etl2 and etl3 respectively. 
 Each etl code might require as input one of the source RTables (srcTab1, srcTab2) and/or some of the target RTables (trgTab1, trgTab2, trgTab3). The exact dependencies for each etl code, appear in the middle column named "ETL Design".
 In the following diagram, we depict the dependencies for each one of the three target RTables as a graph.
