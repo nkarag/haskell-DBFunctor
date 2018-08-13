@@ -1,7 +1,7 @@
 ﻿![dbfunctor logo](./dbfunctor.png)
 # DBFunctor:  Functional Data Management
 ## ETL/ELT* Data Processing in Haskell
-**DBFunctor** is a [Haskell](https://haskell-lang.org/) library for *ETL/ELT** data processing of tabular data. What does this mean?
+**DBFunctor** is a [Haskell](https://haskell-lang.org/) library for *ETL/ELT[^1]* data processing of tabular data. What does this mean?
 It simply means that whenever you have a ***data analysis*, *data preparation*, or *data transformation* task** and you want to do it with Haskell type-safe code, that you enjoy, love and trust so much, now you can! 
 ### Main Features
  1. **Julius: An Embedded Domain Specific (EDSL) Language for ETL**
@@ -32,11 +32,11 @@ Enables *declarative ETL* implementation  in the same sense that SQL is declarat
 ### Typical examples of DBFunctor use-cases
  - **Build database-less Haskell apps.** Build your data processing haskell apps without the need to import your data in a database for querying functionality or any for executing any data transformations. Analyze your CSV files in-place with plain haskell code (*for Haskellers!*).
  - **Data Preparation.** I.e., clean-up data, calculate derived fields and variables, group by and aggregate etc., in order to feed some machine learning algorithm (*for Data Scientists*).
- - **Data Transformation.** in order to transform data from Data Model A to Data Model B (typical use-case *for Data Engineers* who perform ETL*/ELT tasks for feeding Data Warehouses or Data Marts)
+ - **Data Transformation.** in order to transform data from Data Model A to Data Model B (typical use-case *for Data Engineers* who perform ETL/ELT[^1] tasks for feeding Data Warehouses or Data Marts)
  - **Data Exploration.** Ad hoc data analysis tasks, in order to explore a data set for several purposes such as to find business insights and solve a specific business problem, or maybe to do data profiling in order to evaluate the quality of the data coming from a data source, etc (*for Data Analysts*).
  - **Business Intelligence.** Build reports, or dashboards in order to share business insights with others and drive decision making process (*for BI power-users*)
 
-(\*)  **ETL** stands for **Extract Transform and Load** and is the standard technology for accomplishing data management tasks in Data Warehouses / Data Marts and in general for preparing data for any analytic purposes (Ad hoc queries, data exploration/data analysis, Reporting and Business Intelligence, feeding Machine Learning algorithms, etc.). **ELT** is a newer variation of ETL and means that the data are first Loaded into their final destination and then the data transformation runs in-place (as opposed to running at a separate staging area on possibly a different server)).
+[^1]:  **ETL** stands for **Extract Transform and Load** and is the standard technology for accomplishing data management tasks in Data Warehouses / Data Marts and in general for preparing data for any analytic purposes (Ad hoc queries, data exploration/data analysis, Reporting and Business Intelligence, feeding Machine Learning algorithms, etc.). **ELT** is a newer variation of ETL and means that the data are first Loaded into their final destination and then the data transformation runs in-place (as opposed to running at a separate staging area on possibly a different server)).
 
 ### When to Use it?
 DBFunctor should be used whenever a data analysis, or data manipulation, or data transformation task, over *tabular data*, must be performed and we wish to perform it with Haskell code -yielding all the well-known (to Haskellers) benefits from doing that- without the need to use a database query engine for this task.

@@ -1,7 +1,7 @@
 import Etl.Julius
 
-etl :: RTable -> RTable -> [RTable]
-etl srcTab1 srcTab2 = 
+etl :: [RTable] -> [RTable]
+etl [srcTab1, srcTab2] = 
 	let
 		trgTab1 = juliusToRTable $ julius1 srcTab1
 		trgTab2 = juliusToRTable $ julius2 trgTab1 srcTab2
