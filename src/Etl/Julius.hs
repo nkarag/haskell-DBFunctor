@@ -8,13 +8,13 @@ Maintainer  : nkarag@gmail.com
 Stability   : stable
 Portability : POSIX
 
-__Julius__ is an /Embedded Domain Specific Language (EDSL)/ for ETL/ELT data processing in Haskell.  
+__Julius__ is a type-level /Embedded Domain Specific Language (EDSL)/ for ETL/ELT data processing in Haskell.  
 Julius enables us to express complex data transformation flows (i.e., an arbitrary combination of ETL operations) in a more friendly manner (a __Julius Expression__), 
 with plain Haskell code (no special language for ETL scripting required). For more information read this [Julius Tutorial] (https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md).
 
 = When to use this module
 This module should be used whenever one has "tabular data" (e.g., some CSV files, or any type of data that can be an instance of the 'RTabular'
-type class and thus define the 'toRTable' function) and wants to analyze them in-memory with the well-known relational algebra operations 
+type class and thus define the 'toRTable' and 'fromRTable' functions) and wants to analyze them in-memory with the well-known relational algebra operations 
 (selection, projection, join, groupby, aggregations etc) that lie behind SQL. 
 This data analysis takes place within your haskell code, without the need to import the data into a database (database-less 
 data processing) and the result can be turned into the original format (e.g., CSV) with a simple call to the 'fromRTable' function.
@@ -23,17 +23,18 @@ data processing) and the result can be turned into the original format (e.g., CS
 tool for expressing complex data transfromations in Haskell. Moreover, the Julius language includes a clause for the __Column Mapping__ ('RColMapping') concept, which
 is a construct used in ETL tools and enables arbitrary transformations at the column level and the creation of derived columns based on arbitrary expressions on the existing ones. 
 Finally, the ad hoc combination of relational operations and Column Mappings, chained in an data transformation flow, implements the concept of the __ETL Mapping__ ('ETLMapping'), 
-which is the core unit in al ETL tools and is implemented in the "ETL.Internal.Core" module. For the relational algebra operations, Julius exploits the functions in the "RTable.Core" 
+which is the core data mapping unit in all ETL tools and embeds all the \"ETL-logic\" for loading/creating a single __target__ 'RTable' from a set of __source__ 'RTable's.
+It is implemented in the "ETL.Internal.Core" module. For the relational algebra operations, Julius exploits the functions in the "RTable.Core" 
 module, which also exports it.
 
-The Julius EDSL is the recommended method for expressing ETL flows in Haskell, as well as doing any data analysis task within the "DBFunctor" package. "Etl.Julius" is a self-sufficient 
+The [Julius EDSL] (https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md) is the recommended method for expressing ETL flows in Haskell, as well as doing any data analysis task within the "DBFunctor" package. "Etl.Julius" is a self-sufficient 
 module and imports all neccesary functionality from "RTable.Core" and "Etl.Internal.Core" modules, so a programmer should only import "Etl.Julius" and nothing else, in order to have 
 complete functionality.
 
 = Overview
-The core data type in the Julius EDSL is the 'ETLMappingExpr'. This data type creates a so-called __Julius Expression__. This Julius expression, it is evaluated to an 'ETLMapping' (see 'ETLMapping')
-with the 'evalJulius' function and from then, evaluated into an 'RTable' (see 'juliusToRTable'), which is the final result of our transformation. 
-For more information on these core Julius concepts read [DBFunctor Concepts] (https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/CONCEPTS.md).
+The core data type in the Julius EDSL is the 'ETLMappingExpr'. This data type creates a so-called __Julius Expression__. This Julius expression is 
+the \"Haskell equivalent\" to the ETL Mapping concept discussed above. It is evaluated to an 'ETLMapping' (see 'ETLMapping'), which is our data structure 
+for the internal representation of the ETL Mapping, with the 'evalJulius' function and from then, evaluated into an 'RTable' (see 'juliusToRTable'), which is the final result of our transformation. 
 
 A /Julius Expression/ is a chain of ETL Operation Expressions ('EtlOpExpr') connected with the ':->' constructor (or with the ':=>' constructor for named result operations - see below for an explanation)
 This chain of ETL Operations always starts with the 'EtlMapStart' constructor and is executed from left-to-right, or from top-to-bottom:
@@ -93,17 +94,17 @@ result_tab_MData = ...
 
 -- 2. Define your ETL code
 -- E.g.,
-doEtl :: RTable -> IO RTable
-doEtl = do
+myEtl :: [RTable] -> [RTable]
+myEtl [rtab] = 
     -- 3. Define your Julius Expression(s)
     let jul = 
-        EtlMapStart
-        :-> (EtlR $
-                ROpStart  
-                :. (...)
-        ...
+            EtlMapStart
+            :-> (EtlR $
+                    ROpStart  
+                    :. (...)
+            ...
     -- 4. Evaluate Julius to the Result RTable
-    return $ juliusToRTable jul
+    in [juliusToRTable jul]
 
 main :: IO ()
 main = do
@@ -113,7 +114,7 @@ main = do
     srcCSV <- readCSV \".\/app\/test-data.csv\"
 
     -- 6. Convert CSV to an RTable and do your ETL
-    resultRTab <- doETL $ toRTable src_DBTab_MData srcCSV
+    [resultRTab] <- runETL myETL $ [toRTable src_DBTab_MData srcCSV]
 
     -- 7. Print your results on screen
     -- E.g.,
@@ -126,24 +127,32 @@ main = do
 @
 
 [-- 1.] We define the necessary 'RTable' metadata, for each 'RTable' in our program. This is equivalent to a @CREATE TABLE@ ddl clause in SQL.
-[-- 2.] Here is where we define our ETL code. We dont want to do our ETL in the main function, so we separate the ETL code into a separate function (@doETL@). In general,
+[-- 2.] Here is where we define our ETL code. We dont want to do our ETL in the main function, so we separate the ETL code into a separate function (@myETL@). In general,
    in our main, we want to follow the pattern:
 
         * Read your Input
         * Do your ETL
         * Write your Output
 
-   This function receives as input all the necessary source 'RTable's and outputs the resulting (__Target__) 'RTable', after the all the necessary transformations have been
-   executed. Of course an ETL code might produce more than one target 'RTable's, e.g., a target schema (in DB parlance). Moreover, the doETL funciton can be arbitrary complex, 
-   depending on the ETL logic that we want to implement in each case. It is essentially the entry point to our ETL implementation
+   This function receives as input a list with all the necessary __Source__ 'RTable's (in our case we have a single item list) and outputs 
+   a list with all the resulting (__Target__) 'RTable', after the all the necessary transformation steps have been executed. 
+   Of course an ETL code might produce more than one target 'RTable's, e.g., 
+   a target schema (in DB parlance) and not just one as in our example. Moreover, the myETL function can be arbitrary complex, depending on the ETL logic that we want to 
+   implement in each case. It is essentially the entry point to our ETL implementation
 
-[-- 3.] Our ETL code consists of an arbitrary number of Julius expressions. One can define multiple separate Julius expressions, some of which might depend on others, in order to
-   implement ones ETL logic. However, we recommend as a better style to define as few as possible Julius expressions and in order to distinguish between distinct steps
-   in the data processing to use the 'NamedMap' constructor. This way you have your data flow logic in a single expression, with identifiable separate steps, which you can
-   reference and exploit further as intermediate results in other expressions (see also relevant example below).
-[-- 4.] Each Julius expression must be evaluated into an 'RTable' and returned to the caller of the ETL code (in our case this is @main@)
-[-- 5.] Here is where we read our input for the ETL. In our case, this is a simple CSV file that we read with the helop of the 'readCSV' function.
-[-- 6.] We convert our input CSV to an 'RTable', with the 'toRTable' and pass it as input to our ETL code.
+[-- 3.] Our ETL code in general will consist of an arbitrary number of Julius expressions. One can define multiple separate Julius expressions, 
+   some of which might depend on others, in order to implement the corresponding ETL logic. 
+   Keep in mind that each Julius expression encapsulates the \"transformtioin logic\" for producing a __single target RTable__. This holds, 
+   even if the target RTable is an intermediate result in the overall ETL process and not a final result RTable.
+
+   The evaluation of each individual Julius expression must be in conformance with the input-RTable prerequisites of each 
+   Julius expression. So, first we must evaluate all the Julius expressions that dont depend on other Julius expressions but only on
+   source RTables. Then, we evaluate the Julius expressions that depend on the previous ones and so on.
+
+[-- 4.] In our case our ETL code consists of a single source RTable that produces a single target RTable. The Julius expression is evaluated 
+        into an 'RTable' and returned to the caller of the ETL code (in our case this is @main@)
+[-- 5.] Here is where we read our input for the ETL. In our case, this is a simple CSV file that we read with the help of the 'readCSV' function.
+[-- 6.] We convert our input CSV to an 'RTable', with the 'toRTable' and pass it as input to our ETL code. We execute our ETL code with the 'runETL' function.
 [-- 7.] We print our target 'RTable' on screen using the 'printfRTable' function for formatted printed ('Text.Printf.printf' like) of 'RTable's.
 [-- 8.] We save our target 'RTable' to a CSV file with the 'fromRTable' function.
 
@@ -499,13 +508,19 @@ module Etl.Julius (
     -- * Julius Expression Evaluation
     ,evalJulius
     ,juliusToRTable
-    ,juliusToResult
+    ,runJulius
+    ,eitherRunJulius 
+    ,juliusToResult 
+    ,runJuliusToResult
+    ,eitherRunJuliusToResult
+    ,runETL
+    ,eitherRunETL   
     ,takeNamedResult
-    -- * Various ETL Operations
---    ,addSurrogateKey    
+    -- * Various ETL Operations    
     ,addSurrogateKeyJ    
---    ,appendRTable   
     ,appendRTableJ    
+    ,addSurrogateKey    
+    ,appendRTable   
     ) where
 
 -- Data.RTable
@@ -515,6 +530,9 @@ import Etl.Internal.Core
 
 -- Data.Vector
 import Data.Vector as V
+
+import Control.Exception
+import Control.DeepSeq as CDS          
 
 -----------------------------------------------------------------
 -- Define an Embedded DSL in Haskell' s type system
@@ -863,7 +881,7 @@ takeNamedResult rname (restExpression :=> NamedResult n etlOpXpr) =
         else takeNamedResult rname restExpression
 
 -- | Evaluates (parses) the Julius exrpession and produces an 'ETLMapping'. The 'ETLMapping' is an internal representation of the Julius expression and one needs
--- to combine it with the 'etl' function, in order to evaluate the Julius expression into an 'RTable'.
+-- to combine it with the 'etl' function, in order to evaluate the Julius expression into an 'RTable'. This can be achieved directly with function 'juliusToRTable'
 evalJulius :: ETLMappingExpr -> ETLMapping
 evalJulius EtlMapStart = ETLMapEmpty
 evalJulius (restExpression :-> (EtlC colMapExpression)) = 
@@ -928,15 +946,113 @@ evalJulius (restExpression :=> NamedResult rname (EtlR relOperExpression)) =
     in connectETLMapLD ETLrOp {rop = roperation} rightBranch prevMapping  -- (evalJulius restExpression) returns the previous ETLMapping 
 
 
--- | Receives an input Julius expression, evaluates it to an ETL Mapping ('ETLMapping') and executes it, in order to return an 'RTable' storing the result of the ETL Mapping
+-- | Pure code to evaluate the \"ETL-logic\" of a Julius expression and generate the corresponding target RTable.
+--
+-- The evaluation of a Julius expression (i.e., a 'ETLMappingExpr') to an RTable is strict. It evaluates fully to Normal Form (NF)
+-- as opposed to a lazy evaluation (i.e., only during IO), or evaluation to a WHNF. 
+-- This is for efficiency reasons (e.g., avoid space leaks and excessive memory usage). It also has the impact that exceptions will be thrown
+-- at the same line of code that 'juliusToRTable' is called. Thus one should wrap this call with a 'catch' handler, or use 'eitherPrintRTable',
+-- or 'eitherPrintfRTable', if one wants to handle the exception gracefully.
+--
+-- Example:
+--
+-- @
+-- do 
+--  catch (printRTable $ juliusToRTable $ \<a Julius expression\> )
+--        (\\e -> putStrLn $ "There was an error in the Julius evaluation: " ++ (show (e::SomeException)) )
+-- @
+-- 
+-- Or, similarly
+-- 
+-- @
+-- do 
+--  p <- (eitherPrintRTable  printRTable $
+--                           juliusToRTable $ \<a Julius expression\>                                 
+--       ) :: IO (Either SomeException ())
+--  case p of
+--            Left exc -> putStrLn $ "There was an error in the Julius evaluation: " ++ (show exc)
+--            Right _  -> return ()
+-- @
+-- 
 juliusToRTable :: ETLMappingExpr -> RTable
-juliusToRTable = etl . evalJulius
+juliusToRTable = CDS.force $ (etl . evalJulius)
 
+
+
+-- | Evaluate a Julius expression within the IO Monad. 
+-- I.e., Effectful code to evaluate the \"ETL-logic\" of a Julius expression and generate the corresponding target RTable.
+--
+-- The evaluation of a Julius expression (i.e., a 'ETLMappingExpr') to an RTable is strict. It evaluates fully to Normal Form (NF)
+-- as opposed to a lazy evaluation (i.e., only during IO), or evaluation to a WHNF. 
+-- This is for efficiency reasons (e.g., avoid space leaks and excessive memory usage). It also has the impact that exceptions will be thrown
+-- at the same line of code that 'runJulius' is called. Thus one should wrap this call with a 'catch' handler, or use 'eitherRunJulius',
+-- if he wants to handle the exception gracefully.
+--
+-- Example:
+--
+-- @
+-- do 
+--     result <- catch (runJulius $  \<a Julius expression\>)
+--                     (\e -> do 
+--                              putStrLn $ "there was an error in Julius evaluation: " ++ (show (e::SomeException))
+--                              return emptyRTable
+--                     )
+-- @
+-- 
+runJulius :: ETLMappingExpr -> IO RTable
+runJulius jul = return $!! juliusToRTable jul 
+
+
+-- | Evaluate a Julius expression and return the corresponding target 'RTable' or an exception.
+-- One can define custom exceptions to be thrown within a Julius expression. This function will catch any
+-- exceptions that are instances of the 'Exception' type class.
+--
+-- The evaluation of a Julius expression (i.e., a 'ETLMappingExpr') to an 'RTable' is strict. It evaluates fully to Normal Form (NF)
+-- as opposed to a lazy evaluation (i.e., only during IO), or evaluation to a WHNF. 
+-- This is for efficiency reasons (e.g., avoid space leaks and excessive memory usage). 
+--
+-- Example:
+--
+-- @
+-- do 
+--     res <- (eitherRunJulius $ \<a Julius expression\>) :: IO (Either SomeException RTable) 
+--     resultRTab  <- case res of
+--                     Right t  -> return t
+--                     Left exc ->  do 
+--                                     putStrLn $ "there was an error in Julius evaluation: " ++ (show exc)
+--                                     return emptyRTable
+--
+-- @
+--
+eitherRunJulius :: Exception e => ETLMappingExpr ->  IO (Either e RTable)    
+eitherRunJulius jul = try $ runJulius jul
 
 -- | Receives an input Julius expression, evaluates it to an ETL Mapping ('ETLMapping') and executes it, 
 -- in order to return an 'RTabResult' containing an 'RTable' storing the result of the ETL Mapping, as well as the number of 'RTuple's returned 
 juliusToResult :: ETLMappingExpr -> RTabResult
-juliusToResult = etlRes . evalJulius
+juliusToResult = CDS.force $ (etlRes . evalJulius)
+
+-- | Evaluate a Julius expression within the IO Monad and return an 'RTabResult'.
+runJuliusToResult :: ETLMappingExpr -> IO RTabResult
+runJuliusToResult jul = return $ juliusToResult jul
+
+-- | Evaluate a Julius expression within the IO Monad and return either an 'RTabResult', or an exception, in case of an error during evaluation.
+eitherRunJuliusToResult :: Exception e => ETLMappingExpr ->  IO (Either e RTabResult)
+eitherRunJuliusToResult jul = try $ runJuliusToResult jul
+
+-- | Generic ETL execution function. It receives a list of input (aka \"source\") 'RTable's and an ETL function that
+-- produces a list of output (aka \"target\") 'RTable's. The ETL function should embed all the \"transformation-logic\"
+-- from the source 'RTable's to the target 'RTable's.
+runETL :: ([RTable] -> [RTable]) -> [RTable] -> IO [RTable]
+runETL etlf inRTabs = return $!! etlf inRTabs 
+
+-- | Generic ETL execution function that returns either the target list of 'RTable's, or an exception in case of a problem
+-- during the ETL code execution. 
+-- It receives a list of input (aka \"source\") 'RTable's and an ETL function that
+-- produces a list of output (aka \"target\") 'RTable's. The ETL function should embed all the \"transformation-logic\"
+-- from the source 'RTable's to the target 'RTable's.
+eitherRunETL ::  Exception e => ([RTable] -> [RTable]) -> [RTable] -> IO (Either e [RTable])
+eitherRunETL etlf inRTabs = try $ (runETL etlf inRTabs)
 
 
 -- | Internal type: We use this data type in order to identify unary vs binary operations and if the table is coming from the left or right branch
@@ -1191,8 +1307,10 @@ finalRTable = etl $ evalJulius myEtlExpr
 -- Various ETL Operations, defined as Generic Unary/Binary RTable Operations
 -- ##############
 
--- | Returns an ETL Operation that adds a surrogate key (SK) column to an 'RTable' and
+-- | Returns an 'ETLOperation' that adds a surrogate key (SK) column to an 'RTable' and
 -- fills each row with a SK value.
+-- This function is only exposed for backward compatibility reasons. The recommended function to use instead
+-- is 'addSurrogateKeyJ', which can be embedded directly into a Julius expression as a 'UnaryRTableOperation'.
 addSurrogateKey :: Integral a =>    
        ColumnName    -- ^ The name of the surrogate key column
     -- -> Integer       -- ^ The initial value of the Surrogate Key will be the value of this parameter    
@@ -1239,7 +1357,9 @@ addSurrogateKeyJ cname initVal  =
                         in V.zipWith (\tupsrc (val, _) -> upsertRTuple cname (RInt (fromIntegral initVal) + RInt (fromIntegral val)) tupsrc ) rt indexedRTab
 
 
--- | Returns an ETL Operation that Appends an 'RTable' to a target 'RTable' 
+-- | Returns an 'ETLOperation' that Appends an 'RTable' to a target 'RTable' 
+-- This function is only exposed for backward compatibility reasons. The recommended function to use instead
+-- is 'appendRTableJ', which can be embedded directly into a Julius expression as a 'BinaryRTableOperation'.
 appendRTable ::
         ETLOperation  -- ^ Output ETL Operation
 appendRTable  = 

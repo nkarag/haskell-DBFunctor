@@ -16,7 +16,7 @@ It defines all necessary data types like 'RTable' and 'RTuple' as well as all th
 
 = When to use this module
 This module should be used whenever one has "tabular data" (e.g., some CSV files, or any type of data that can be an instance of the 'RTabular'
-type class and thus define the 'toRTable' function) and wants to analyze them in-memory with the well-known relational algebra operations 
+type class and thus define the 'toRTable'  and 'fromRTable' functions) and wants to analyze them in-memory with the well-known relational algebra operations 
 (selection, projection, join, groupby, aggregations etc) that lie behind SQL. 
 This data analysis takes place within your haskell code, without the need to import the data into a database (database-less 
 data processing) and the result can be turned into the original format (e.g., CSV) with a simple call to the 'fromRTable' function.
@@ -26,7 +26,7 @@ the basic 'RTable' data type. Of course, since each relational algebra operation
 can compose these operations and thus express an arbitrary complex query. Immutability also holds for DML operations also (e.g., 'updateRTab'). This
 means that any update on an RTable operates like a @CREATE AS SELECT@ statement in SQL, creating a new 'RTable' and not modifying an existing one.
 
-Note that the recommended method in order to perform data analysis via relational algebra operations is to use the __Embedded Domain Specific Language__
+Note that the recommended method in order to perform data analysis via relational algebra operations is to use the type-level __Embedded Domain Specific Language__
 __(EDSL) Julius__, defined in module "Etl.Julius", which exports the "RTable.Core" module. This provides a standard way of expressing queries and is 
 simpler for expressing more complex queries (with many relational algebra operations). Moreover it supports intermediate results (i.e., subqueries). Finally, 
 if you need to implement some __ETL/ELT data flows__, that will use the relational operations defined in "RTable.Core" to analyze data but also
@@ -479,6 +479,8 @@ module RTable.Core (
     ,listOfColInfoRDataType
     ,toListColumnName
     ,toListColumnInfo
+    -- * Exceptions
+    ,ColumnDoesNotExist (..)
 
     -- * RTable IO Operations
     -- ** RTable Printing and Formatting
@@ -529,7 +531,9 @@ module RTable.Core (
     @
     -}    
     ,printRTable
+    ,eitherPrintRTable
     ,printfRTable
+    ,eitherPrintfRTable
     ,RTupleFormat (..)
     ,ColFormatMap
     ,FormatSpecifier (..)
@@ -584,7 +588,12 @@ import Control.Monad ((<=<))
 -- Control.Monad.Trans.Writer.Strict
 import Control.Monad.Trans.Writer.Strict (Writer, writer, runWriter, execWriter)
 -- Text.Printf
-import Text.Printf (printf)
+import Text.Printf      (printf)
+
+import Control.Exception
+
+import GHC.Generics     (Generic)
+import Control.DeepSeq
 
 -- import Control.Monad.IO.Class (liftIO)
 
@@ -652,6 +661,7 @@ type RTable = V.Vector RTuple
 --   This gives us the freedom to perform column change operations very fast.
 --   The only place were we need fixed column order is when we try to load an 'RTable' from a fixed-column structure such as a CSV file.
 --   For this reason, we have embedded the notion of a fixed column-order in the 'RTuple' metadata. See 'RTupleMData'.
+--   
 type RTuple = HM.HashMap ColumnName RDataType
 
 -- | Turns an 'RTable' to a list of 'RTuple's
@@ -692,21 +702,26 @@ type RTableName = Name
 data ColumnDType = Integer | Varchar | Date Text | Timestamp Text | Double deriving (Show, Eq)
 
 -- | Definition of the Relational Data Type. This is the data type of the values stored in each 'RTable'.
+-- This is a strict data type, meaning whenever we evaluate a value of type 'RDataType', 
+-- there must be also evaluated all the fields it contains.
 data RDataType = 
-      RInt { rint :: Integer }
+      RInt { rint :: !Integer }
     -- RChar { rchar :: Char }
-      | RText { rtext :: T.Text }
+      | RText { rtext :: !T.Text }
     -- RString {rstring :: [Char]}
       | RDate { 
-                rdate :: T.Text
-               ,dtformat :: Text  -- ^ e.g., "DD\/MM\/YYYY"
+                rdate :: !T.Text
+               ,dtformat :: !Text  -- ^ e.g., "DD\/MM\/YYYY"
             }
-      | RTime { rtime :: RTimestamp  }
-      | RDouble { rdouble :: Double }
+      | RTime { rtime :: !RTimestamp  }
+      | RDouble { rdouble :: !Double }
     -- RFloat  { rfloat :: Float }
       | Null
-      deriving (Show,TB.Typeable, Read)   -- http://stackoverflow.com/questions/6600380/what-is-haskells-data-typeable
+      deriving (Show,TB.Typeable, Read, Generic)   -- http://stackoverflow.com/questions/6600380/what-is-haskells-data-typeable
 
+-- | In order to be able to force full evaluation up to Normal Form (NF)
+-- https://www.fpcomplete.com/blog/2017/09/all-about-strictness
+instance NFData RDataType
 
 
 -- | We need to explicitly specify equation of RDataType due to SQL NULL logic (i.e., anything compared to NULL returns false):
@@ -872,8 +887,9 @@ getRTupColValue ::
     -> RDataType     -- ^ Output value
 getRTupColValue =  rtupLookupDefault Null  -- HM.lookupDefault Null
 
+
 -- | Operator for getting a column value from an RTuple
---   Calls error if this map contains no mapping for the key.
+--   Throws a 'ColumnDoesNotExist' exception, if this map contains no mapping for the key.
 (<!>) ::
        RTuple        -- ^ Input RTuple
     -> ColumnName    -- ^ ColumnName key
@@ -882,7 +898,8 @@ getRTupColValue =  rtupLookupDefault Null  -- HM.lookupDefault Null
        -- (HM.!)
        case rtupLookup c t of
             Just v -> v
-            Nothing -> error $ "*** Error in function Data.RTable.(<!>): Column \"" ++ (T.unpack c) ++ "\" does not exist! ***" 
+            Nothing -> throw $ ColumnDoesNotExist c  
+                       -- error $ "*** Error in function Data.RTable.(<!>): Column \"" ++ (T.unpack c) ++ "\" does not exist! ***" 
 
 
 -- | Safe Operator for getting a column value from an RTuple
@@ -906,7 +923,7 @@ nvl v defaultVal =
 -- | Returns the value of a specific column (specified by name) if this is not Null. 
 -- If this value is Null, then it returns the 2nd parameter.
 -- If you pass an empty RTuple, then it returns Null.
--- Calls error if this map contains no mapping for the key.
+-- Throws a 'ColumnDoesNotExist' exception, if this map contains no mapping for the key.
 nvlColValue ::
         ColumnName  -- ^ ColumnName key
     ->  RDataType   -- ^ value returned if original value is Null
@@ -927,7 +944,7 @@ data IgnoreDefault = Ignore | NotIgnore deriving (Eq, Show)
 -- then it returns the specified Return Value. If not, then it returns the specified default Value, if the ignore indicator is not set,
 -- otherwise (if the ignore indicator is set) it returns the existing value.
 -- If you pass an empty RTuple, then it returns Null.
--- Calls error if this map contains no mapping for the key.
+-- Throws a 'ColumnDoesNotExist' exception, if this map contains no mapping for the key.
 decodeColValue ::
         ColumnName  -- ^ ColumnName key
     ->  RDataType   -- ^ Search value
@@ -961,7 +978,7 @@ nvlRTuple c defaultVal tup  =
 -- | It receives an RTable and a default value. It returns a new RTable which is identical to the source one
 -- but for each RTuple, for the specified column every Null value in every RTuple has been replaced by a default value
 -- If you pass an empty RTable, then it returns an empty RTable
--- Calls error if the column does not exist
+-- Throws a 'ColumnDoesNotExist' exception, if the column does not exist
 nvlRTable ::
         ColumnName  -- ^ ColumnName key
     ->  RDataType -- ^ Default value        
@@ -980,7 +997,7 @@ nvlRTable c defaultVal tab  =
 -- else the default value is returned  (if the ignore indicator is not set), otherwise (if the ignore indicator is set),
 -- it returns the existing value for the column for each 'RTuple'. 
 -- If you pass an empty RTable, then it returns an empty RTable
--- Calls error if the column does not exist
+-- Throws a 'ColumnDoesNotExist' exception, if the column does not exist
 decodeRTable ::            
         ColumnName  -- ^ ColumnName key
     ->  RDataType   -- ^ Search value
@@ -1031,14 +1048,21 @@ removeCharAroundRText ch (RText t) = RText $ T.dropAround (\c -> c == ch) t
 removeCharAroundRText ch _ = Null
 
 -- | Basic data type to represent time.
+-- This is a strict data type, meaning whenever we evaluate a value of type 'RTimestamp', 
+-- there must be also evaluated all the fields it contains.
 data RTimestamp = RTimestampVal {
-            year :: Int
-            ,month :: Int
-            ,day :: Int
-            ,hours24 :: Int
-            ,minutes :: Int
-            ,seconds :: Int
-        } deriving (Show, Read)
+            year :: !Int
+            ,month :: !Int
+            ,day :: !Int
+            ,hours24 :: !Int
+            ,minutes :: !Int
+            ,seconds :: !Int
+        } deriving (Show, Read, Generic)
+
+
+-- | In order to be able to force full evaluation up to Normal Form (NF)
+instance NFData RTimestamp
+
 
 instance Eq RTimestamp where
         RTimestampVal y1 m1 d1 h1 mi1 s1 ==  RTimestampVal y2 m2 d2 h2 mi2 s2 = 
@@ -1824,7 +1848,7 @@ isNullRTuple t =
 -- | This is a fold operation on a RTable.
 -- It is similar with :
 -- @
---  foldr' :: (a -> b -> b) -> b -> Vector a -> b Source #
+--  foldr' :: (a -> b -> b) -> b -> Vector a -> b 
 -- @
 -- of Vector, which is an O(n) Right fold with a strict accumulator
 rtabFoldr' :: (RTuple -> RTable -> RTable) -> RTable -> RTable -> RTable
@@ -2774,6 +2798,21 @@ genRTupleFormat colNames colfMap = RTupleFormat { colSelectList = colNames, colF
 genRTupleFormatDefault :: RTupleFormat
 genRTupleFormatDefault = RTupleFormat { colSelectList = [], colFormatMap = genDefaultColFormatMap }
 
+
+-- | Safe 'printRfTable' alternative that returns an 'Either', so as to give the ability to handle exceptions 
+-- gracefully, during the evaluation of the input RTable. Example:
+--
+-- @
+-- do 
+--  p <- (eitherPrintfRTable printfRTable myFormat myRTab) :: IO (Either SomeException ())
+--  case p of
+--            Left exc -> putStrLn $ "There was an error in the Julius evaluation: " ++ (show exc)
+--            Right _  -> return ()
+-- @
+--
+eitherPrintfRTable :: Exception e => (RTupleFormat -> RTable -> IO()) -> RTupleFormat -> RTable -> IO (Either e ()) 
+eitherPrintfRTable printFunc fmt rtab = try $ printFunc fmt rtab
+
 -- | prints an RTable with an RTuple format specification.
 -- It should be used instead of 'printRTable' for two reasons:
 -- a) When we want to specify the order that the columns will be printed on screen
@@ -2819,6 +2858,19 @@ printfRTable rtupFmt rtab = -- undefined
                             printRTupleFmt rtupf ws rtup
                             printRTabBodyFmt rtupf ws rest
 
+-- | Safe 'printRTable' alternative that returns an 'Either', so as to give the ability to handle exceptions 
+-- gracefully, during the evaluation of the input RTable. Example:
+--
+-- @
+-- do 
+--  p <- (eitherPrintRTable  printRTable myRTab) :: IO (Either SomeException ())
+--  case p of
+--            Left exc -> putStrLn $ "There was an error in the Julius evaluation: " ++ (show exc)
+--            Right _  -> return ()
+-- @
+--
+eitherPrintRTable :: Exception e => (RTable -> IO ()) -> RTable -> IO (Either e ())
+eitherPrintRTable printFunc rtab = try $ printFunc rtab 
 
 -- | printRTable : Print the input RTable on screen
 printRTable ::
@@ -3221,3 +3273,10 @@ printRTable rtab = -- undefined
         PP.ppTable vectorOfprintableRTups
 
 -}
+
+-- #####  Exceptions Definitions
+
+-- | This exception is thrown whenever we try to access a specific column (i.e., 'ColumnName') of an 'RTuple' and the column does not exist.  
+data ColumnDoesNotExist = ColumnDoesNotExist ColumnName deriving(Eq,Show)
+
+instance Exception ColumnDoesNotExist

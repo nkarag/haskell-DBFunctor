@@ -53,7 +53,10 @@ module RTable.Data.CSV
         ,headCSV
         ,tailCSV
         -- * Misc
-        ,csvHeaderFromRtable        
+        ,csvHeaderFromRtable           
+        -- * Exceptions
+        ,CsvFileDecodingError (..)   
+        ,CSVColumnToRDataTypeError (..)
     ) where
 
 import Debug.Trace
@@ -110,6 +113,8 @@ import Data.Either.Combinators (fromRight')
 import Data.Char (ord)
 
 import Text.Printf (printf)
+
+import Control.Exception
 
 {--  
 
@@ -204,7 +209,7 @@ readCSV f = do
     let
         csvResult = -- fromRight' $ CV.decode CV.HasHeader csvData
             case CV.decode CV.HasHeader csvData of
-                Left str -> error $ "Error in decoding CSV file " ++ f ++ ": " ++ str
+                Left str -> throw $ CsvFileDecodingError f $ T.pack str -- error $ "Error in decoding CSV file " ++ f ++ ": " ++ str
                 Right res -> res
         {--
         case CV.decode CV.HasHeader csvData of   --CV.decodeByName csvData of
@@ -242,7 +247,7 @@ readCSVwithOptions opt f = do
                                             No  -> CV.NoHeader)
 
                                         csvData  of
-                                            Left str -> error $ "Error in decoding CSV file " ++ f ++ ": " ++ str
+                                            Left str -> throw $ CsvFileDecodingError f $ T.pack str  -- error $ "Error in decoding CSV file " ++ f ++ ": " ++ str
                                             Right res -> res
 
 {-        csvResult = fromRight' $ 
@@ -303,6 +308,7 @@ copyCSV fi fo = do
     csv <- readCSV fi
     writeCSV fo csv 
 
+
 -- ##################################################
 -- *  CSV to RTable integration
 -- ##################################################
@@ -360,7 +366,8 @@ csvToRTable m c =
                                         -- For this reason we are going to use : CV.parseField :: Field -> Parser a                                    
                                         --val = fromRight' $ CV.runParser $ CV.parseField col
                                         val = case CV.runParser $ CV.parseField col of
-                                            Left str -> error $ "Error in parsing column " ++ (T.unpack $ name ci) ++ ":" ++ str
+                                            Left str -> throw $ CSVColumnToRDataTypeError (name ci) $ T.pack str 
+                                                        -- error $ "Error in parsing column " ++ (T.unpack $ name ci) ++ ":" ++ str
                                             Right v -> v
 
                                         {--
@@ -724,3 +731,15 @@ projectByIndex inds icsv =
                 newrow = V.fromList $ Data.List.map (\i -> row V.! i) inds
             in -- add new row in result vector
                 V.snoc acc newrow
+
+-- #####  Exceptions Definitions
+
+-- | Exception to signify an error in decoding a CSV file into a 'CSV' data type
+data CsvFileDecodingError = CsvFileDecodingError FilePath Text deriving(Eq,Show)
+
+instance Exception CsvFileDecodingError
+
+-- | This exception signifies an error in parsing a 'CSV' 'Column' to an 'RDataType' value
+data CSVColumnToRDataTypeError = CSVColumnToRDataTypeError ColumnName Text deriving(Eq,Show)
+
+instance Exception CSVColumnToRDataTypeError

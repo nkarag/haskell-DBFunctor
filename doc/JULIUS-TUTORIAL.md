@@ -1,5 +1,5 @@
-﻿
-# Julius : An  Embedded Domain Specific Language for ETL data processing in Haskell
+﻿![julius_logo](./julius_logo.png)
+# Julius : A type-level  Embedded Domain Specific Language for ETL data processing in Haskell
 # A Tutorial
 ## Table Of Contents
  1. [Introduction](#introduction)
@@ -33,7 +33,7 @@
 
 <a name="introduction"></a>
 ## Introduction  
-__Julius__ is an *Embedded Domain Specific Language (EDSL)* for ETL data processing in Haskell.  Julius enables us to express complex data transformation flows (i.e., an arbitrary combination of ETL operations) in a more friendly manner (a __Julius Expression__), with plain Haskell code (no special language for ETL scripting required).
+__Julius__ is a type-level *Embedded Domain Specific Language (EDSL)* for ETL data processing in Haskell.  Julius enables us to express complex data transformation flows (i.e., an arbitrary combination of ETL operations) in a more friendly manner (a __Julius Expression__), with plain Haskell code (no special language for ETL scripting required).
 It is an "embedded" DSL because it "lives" within Haskell code and is compiled with GHC as usual. It is not a different language requiring some special compiler/interpreter to work. 
 In fact, a *Julius Expression* is just a common Haskell data type. The whole syntax of the Julius language consists of nothing more than a series of Haskell data type definitions. These data types simply comprise the Julius language. A syntax error in the Julius language is just a data type construction error that can be caught by the compiler.
 In this tutorial, we will show the basics of Julius in order to help someone to get started. (See also the documentation of the **Etl.Julius** and **RTable.Core** **modules** of the **DBFunctor package** for more details on the data types and functions exposed). 
@@ -59,7 +59,7 @@ In order to create an RTable from your data (i.e., load your data into memory in
 ```haskell
     toRTable :: (RTabular a) => RTableMData -> a -> RTable
 ```
-`toRTable` is a method of the `RTabluar` type class, which resides in the RTable.Core module of the DBFunctor package. So, if your data are loaded in a data type `a` , which is an instance of the `RTabular` type class, then the only thing you have to do, is to call `toRTable`, in order to get a new RTable loaded with your data. Of course `toRTable` also requires as input the necessary RTable metadata (`RTableMData`), which define the RTable's columns and corresponding data types (similar to an SQL `CREATE TABLE`DDL statement).
+`toRTable` is a method of the `RTabular` type class, which resides in the RTable.Core module of the DBFunctor package. So, if your data are loaded in a data type `a` , which is an instance of the `RTabular` type class, then the only thing you have to do, is to call `toRTable`, in order to get a new RTable loaded with your data. Of course `toRTable` also requires as input the necessary RTable metadata (`RTableMData`), which define the RTable's columns and corresponding data types (similar to an SQL `CREATE TABLE`DDL statement).
 
 For example, assume we have a csv file "mydata.csv" with a data set that we want to convert into an RTable, in order to be able to process it with some Julius expression.
 The first step is to read the csv file into some data type `a` that is an instance of the `RTabular` type class. In module, RTable.Data.CSV of the DBfunctor package, we have defined data type `CSV` to represent a CSV file and have made it an instance of `RTabular`. So the only thing you have to do is:
@@ -722,23 +722,42 @@ Indeed, each Julius expression corresponds to one and only one target RTable and
 ```
  Julius Expression -> RTable
 ```
-Of course, many different Julius expressions might evaluate to the same target RTable, just as many different SQL statements might produce the same results.
+Of course, many different Julius expressions might evaluate to the same target RTable, just as many different SQL statements might produce the same results. In fact, the "SQL equivalent" to this function is a `CREATE TABLE AS SELECT` (CTAS) DDL statement.
 
 In order to execute the ETL logic and produce the target RTable, we need to *evaluate* the Julius expression. More technically speaking, since the Haskell data type of a Julius expression is the `ETLMappingExpr`, then this evaluation function must be a function of the type: 
 ```
 ETLMappingExpr -> RTable
 ```
-Indeed, the basic Julius expression evaluation function, which is defined in the module Etl.Julius of the DBFunctor package is:
+Indeed, the core Julius expression evaluation function, which is defined in the module Etl.Julius of the DBFunctor package is:
 ```haskell
 juliusToRTable :: ETLMappingExpr -> RTable
 ```
-We have used this function in all of our examples above. Of course, due to Haskell's laziness the actual evaluation of the Julius expression, takes place only when it is absolutely necessary, e.g., when we try to print the contents of an RTable on screen, or store it into a CSV file.
+We have used this function in all of our examples above.
+
+*The evaluation of a Julius expression (i.e., a `ETLMappingExpr`) to an `RTable` is strict*. It evaluates fully to [Normal Form (NF)](https://www.fpcomplete.com/blog/2017/09/all-about-strictness) as opposed to lazy evaluation (i.e., only during IO), or evaluation to a [WHNF](https://www.fpcomplete.com/blog/2017/09/all-about-strictness). This is for efficiency reasons (e.g., avoid space leaks and excessive memory usage). It also has the impact that exceptions will be thrown at the same line of code that `juliusToRTable` is called. Thus one should wrap this call with a [`catch` handler](http://hackage.haskell.org/package/base-4.10.1.0/docs/Control-Exception.html#g:5), as in the following example, in order to handle the exception gracefully.
+Example:
+```
+do 
+ catch (printRTable $ juliusToRTable $ <a Julius expression>)
+       (\e -> putStrLn $ "There was an error in the Julius evaluation: " ++ (show (e::SomeException)) )
+```
+In this example, we are using function `printRTable`, of the Etl.Julius module in the DBFunctor package, in order to print on the screen the target RTable (i.e., the result of the Julius expression evaluation). We will discuss printing of RTables in a later section. Similarly we could use function `eitherPrintRTable`, that returns an `Either` data type wrapping the exception in the `Left` part, as follows:
+```
+do 
+ p <- (eitherPrintRTable  printRTable $
+	                          juliusToRTable $ <a Julius expression>                                 
+      ) :: IO (Either SomeException ())
+ case p of
+           Left exc -> putStrLn $ "There was an error in the Julius evaluation: " ++ (show exc)
+           Right _  -> return ()
+```
+There is a handful of other functions for evaluating a Julius expression, like `runJulius` and `eitherRunJulius`, which evaluate a Julius expression within an IO Monad, or `juliusToResult` and the corresponding `runJuliusToResult` and `eitherRunJuliusToResult`, which return the target `RTable` along with the number of `RTuple`s returned, all wrapped in a `RTabResult` data type; we urge the interested reader to find more details and examples in the documentation of the Etl.Julius module.
 <a name="etlcode"></a>
 ### Writing ETL Code in Haskell and Julius EDSL
-We have seen that *behind each target RTable lies a Julius expression*. This is important to remember, because when we want to write our ETL code in Haskell and Julius EDSL, then we can follow this simple rule:
+We have seen that *behind each target RTable lies a Julius expression* that embeds the "logic" of how to generate it. This is important to remember, because when we want to write our ETL code in Haskell and Julius EDSL, then we should follow this simple rule:
 
 __*Simple Guiding Rule 1*__
-_Each target RTable that must be created[^2] based on some ETL logic, can be replaced with a_ `juliusToRTable <julius expresssion>` _expression_
+_Each target RTable that must be created[^2] based on some ETL logic, can be replaced with a_ `juliusToRTable <julius expresssion>` _expression._
 
 [^2]:	We say "created" instead of "loaded", because since Haskell is immutable, the evaluation of a Julius expression, always results into a new RTable.
 
@@ -754,7 +773,7 @@ Lets see how beautiful ETL code we can write in Haskell. Lets assume the followi
 
 At the right end, we see three target RTables (trgTab1, trgTab2, trgTab3). These should be the output  of our ETL code. In order to create each one of these, we need to run some "etl-logic code", etl1, etl2 and etl3 respectively. 
 Each etl code might require as input one of the source RTables (srcTab1, srcTab2) and/or some of the target RTables (trgTab1, trgTab2, trgTab3). The exact dependencies for each etl code, appear in the middle column named "ETL Design".
-In the following diagram, we depict the dependencies for each one of the three target RTables as a DAG.
+In the following diagram, we depict the dependencies for each one of the three target RTables as a Directed Acyclic Graph (DAG).
 
 ![target_rtab_dependencies](./etl_code_example1.jpg)
 Fig 1. Dependencies for creating the target RTables (aka ETL Design DAG).
@@ -765,13 +784,13 @@ trgTab1 = juliusToRTable julius1
 trgTab2 = juliusToRTable julius2
 trgTab3 = juliusToRTable julius3
 ```  
-where julius1, julius2 and julius3 are the equivalent Julius expressions behind each target RTable. Remember that: *each Julius expression is essentially (input RTables + ETL logic)*. The necessary input RTables for each Julius expression, are clearly stated in the middle column named "ETL Design", in the table above, but also can be seen in Fig 1.
-The next step is to order the evaluation of the Julius expressions, in such a way, that the input RTable requirements of each one are met. This can be depicted in Fig. 2.
+where julius1, julius2 and julius3 are the corresponding Julius expressions behind each target RTable. Remember that: *each Julius expression is essentially (input RTables + ETL logic)*. The necessary input RTables for each Julius expression, are clearly stated in the middle column named "ETL Design", in the table above, but also can be seen in Fig 1.
+The next step is to order the evaluation of the Julius expressions, in such a way that the input RTable requirements of each one are met. This can be depicted in Fig. 2.
 
 ![julius_ordering](./etl_code_example2.jpg)
 Fig 2. Evaluation order of Julius expressions according to input RTable requirements
 
-In Fig 2, we can see that each target RTable is created by the evaluation of a specific Julius expression (denoted with a bold black arrow). At the bottom of the figure, we can see the evaluation order of the three Julius expressions. First we evaluate julius1, since its input requirements are just a source RTable and has no dependency to other Julius expression evaluation. Then, we proceed with julius2, which requires the result of the evaluation of julius1. Finally, we evaluate julius3, which requires both the evaluation of the other two.
+In Fig 2, we can see that each target RTable is created by the evaluation of a specific Julius expression (denoted by a bold black arrow). At the bottom of the figure, we can see the evaluation order of the three Julius expressions. First we evaluate julius1, since its input requirements are just a source RTable and has no dependency to other Julius expression evaluations. Then, we proceed with julius2, which requires the result of the evaluation of julius1. Finally, we evaluate julius3, which requires both the evaluation of the other two.
 
 Now  we can state our second guiding rule for writing ETL code in Haskell and Julius:
 
@@ -782,8 +801,8 @@ Lets write our Haskell ETL function that implements the ETL design of our runnin
 ```haskell
 import Etl.Julius
 
-etl :: [RTable] -> [RTable]
-etl [srcTab1, srcTab2] = 
+myEtl :: [RTable] -> [RTable]
+myEtl [srcTab1, srcTab2] = 
 	let
 -- 1. Substitute each target RTable with the corresponding Julius expression
 -- 2. Order the evaluation of the Julius expressions based on their input RTable requirements
@@ -802,6 +821,33 @@ etl [srcTab1, srcTab2] =
 		julius3 = undefined
 ```
 We can clearly see the substitution of each target RTable with the corresponding Julius expression, as well as the ordering of the evaluation of the Julius expressions based on their input RTable dependencies.
+
+Now that we have implemented our "ETL-logic" function, lets see how easy it is to run it with the `runETL` function of the Etl.Julius module. The following `main` function could be the top level function of our ETL program written in Haskell and the Julius EDSL. Is consists of three discrete steps:
+ 1. The **Extract** phase, where we read our data sources (some CSVs file in our case) and turn them into source RTables.
+ 2. The **Transform** phase, where we run our ETL-logic code in order to produce the target RTables from the source RTables. All the ETL-logic code is embedded in the `myETL` function, which we execute with the `runETL` function and providing the appropriate source RTables.
+ 3. Finally, the **Load** phase, where we save our target RTables to our target schema (in our case the target schema is just 3 csv files residing in the local file system) 
+```Haskell
+import Etl.Julius
+import RTable.Data.CSV  (readCSV,  writeCSV,  toRTable, fromRTable)
+
+main::IO ()
+main = do
+	-- 1. Read source RTables
+	srcTab1csv  <-  readCSV  "srcTab1.csv"
+	srcTab2csv  <-  readCSV  "srcTab2.csv"
+	let
+		srcTab1 = toRTable srcTab1MData srcTab1csv
+		srcTab2 = toRTable srcTab2MData srcTab2csv
+
+	-- 2. Run you ETL-logic code to produce target RTables
+	[trgTab1,trgTab2,trgTab3] <- runEtl [srcTab1,srcTab2] myEtl
+
+	-- 3. Save Results into 3 CSV files - one for each target RTable
+	writeCSV "trgTab1.csv" $ fromRTable trgTab1MData trgTab1
+	writeCSV "trgTab2.csv" $ fromRTable trgTab2MData trgTab2
+	writeCSV "trgTab3.csv" $ fromRTable trgTab3MData trgTab3
+
+```
 <a name="cqaje"></a>
 ## Complex Queries as Julius Expressions
 <a name="subqueries"></a>
@@ -809,7 +855,7 @@ We can clearly see the substitution of each target RTable with the corresponding
 example : running total
 <a name="intresults"></a>
 ### Naming Intermediate Results
-subquery factory (WITH clause)
+subquery factoring (WITH clause)
 <a name="output"></a>
 ## Output
 <a name="print"></a>

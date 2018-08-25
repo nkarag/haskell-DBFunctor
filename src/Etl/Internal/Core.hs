@@ -37,6 +37,8 @@ module Etl.Internal.Core
         ,createLeafETLMapLD
         ,createLeafBinETLMapLD
         ,connectETLMapLD
+        -- * Various ETL Operations
+        ,
     ) where 
 
 -- Data.RTable

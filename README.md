@@ -5,7 +5,7 @@
 It simply means that whenever you have a ***data analysis*, *data preparation*, or *data transformation* task** and you want to do it with Haskell type-safe code, that you enjoy, love and trust so much, now you can! 
 ### Main Features
  1. **Julius: An Embedded Domain Specific (EDSL) Language for ETL**
-Provides an intuitive Embedded Domain Specific (EDSL) Language called *Julius* for expressing complex data flows (i.e., ETL flows)  but also for performing SQL-like data analysis. For more info check this [Julius tutorial](https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md).
+Provides an intuitive type-level Embedded Domain Specific (EDSL) Language called *Julius* for expressing complex data flows (i.e., ETL flows)  but also for performing SQL-like data analysis. For more info check this [Julius tutorial](https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md).
  2. **Supports all known relational operations**
 Julius supports all known relational operations (selection, projection, inner/outer join, grouping, ordering, aggregation, set operations etc.)
  3. **Provides the ETL Mapping and other typical ETL constructs**
