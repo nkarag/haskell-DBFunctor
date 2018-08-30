@@ -8,15 +8,79 @@
 
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 
 import Etl.Julius
 import Data.Text 	(pack)
 
 myetl :: [RTable] -> [RTable]
-myetl = undefined
-	-- tab1 = create new rtable with additional column "AccumAmount" initialized with 0.0 and ordered by month
+myetl [src] = 
+	let
+		-- tab1 = create new rtable with additional column "AccumAmount" initialized with 0.0 and ordered by month
+		tab1 = juliusToRTable $ jul1 src
+		-- tab2 = fold over src and at each iteration find current max and update accumulator rtab - start with tab1 as accumulator tab
+		trg = juliusToRTable $ jul2 tab1
+	in [trg]
+	where
+		jul1 s =	EtlMapStart
+					:-> (EtlC $
+							Source [] $
+							Target ["AccumAmount"] $
+							By (\_ -> [RDouble 0.0]) (On $ Tab s) DontRemoveSrc $
+							FilterBy (\_ -> True)
+						) 
+					:-> (EtlR $
+							ROpStart
+							:.(OrderBy [("Month", Asc)] $ 
+								From Previous 
+							)
+						)
+		jul2 initTab = 	EtlMapStart
+						:-> (EtlR $
+								ROpStart
+								-- :.(GenUnaryOp (On $ Tab src) $
+								:.(GenUnaryOp (On $ Tab initTab) $
+									ByUnaryOp $ rtabFoldl' accumFunc initTab 
+								)
+								:.(OrderBy [("Month", Asc)] $
+									From Previous
+								)
+							)
+		accumFunc =	\accTab rtup ->
+			let
+				-- find sum from starting RTuple till current RTuple (i.e., window that our agg function is applied)
+				runningSum = (headRTup $ currAggTab) <!> "RunningSum"
+				currAggTab = juliusToRTable $
+								EtlMapStart 
+								:-> (EtlR $
+										ROpStart
+										-- filter rtuples to get current window of rtuples that sum will be applied
+										:.	(Filter (From $ Tab accTab) $
+												FilterBy (\t -> t <!> "Month" <= rtup <!> "Month")
+										)
+										-- apply sum on window of rtuples
+										:.	(Agg $
+												AggOn [Sum "Amount" $ As "RunningSum"] $ From Previous
+										)
+									){-
+				-- find the current maximum accumulated amount in the accTab
+				currMax = (headRTup $ maxTab) <!> "MaxAmount"
+				maxTab = juliusToRTable $ 
+							EtlMapStart 
+							:-> (EtlR $
+									ROpStart
+									:.(Agg $
+										AggOn [Max "AccumAmount" $ As "MaxAmount"] $
+										From $ Tab accTab
+									)
+								)
+			in updateRTab	[("AccumAmount", currMax + rtup <!> "Amount")] -- update specific month RTuple with accumulated amount
+							(\t -> t <!> "Month" == rtup <!> "Month")
+							accTab-}
 
-	-- tab2 = fold over tab1 and at each iteration find current max and update accumulator rtab
+			in updateRTab	[("AccumAmount", runningSum)] -- update specific month RTuple with accumulated amount
+							(\t -> t <!> "Month" == rtup <!> "Month")
+							accTab
 
 main :: IO()
 main = do 
@@ -29,9 +93,9 @@ main = do
 	printRTable src
 
 	-- 2. run etl
-	--[trg] <- runETL myetl [src]
+	[trg] <- runETL myetl [src]
 
 	-- 3. print target
-	--printRTable trg
+	printRTable trg
 
 

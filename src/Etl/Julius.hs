@@ -130,9 +130,9 @@ main = do
 [-- 2.] Here is where we define our ETL code. We dont want to do our ETL in the main function, so we separate the ETL code into a separate function (@myETL@). In general,
    in our main, we want to follow the pattern:
 
-        * Read your Input
-        * Do your ETL
-        * Write your Output
+        * Read your Input (Extract phase)
+        * Do your ETL (Transform phase)
+        * Write your Output (Load phase)
 
    This function receives as input a list with all the necessary __Source__ 'RTable's (in our case we have a single item list) and outputs 
    a list with all the resulting (__Target__) 'RTable', after the all the necessary transformation steps have been executed. 

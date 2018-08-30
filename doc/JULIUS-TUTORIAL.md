@@ -826,6 +826,8 @@ Now that we have implemented our "ETL-logic" function, lets see how easy it is t
  1. The **Extract** phase, where we read our data sources (some CSVs file in our case) and turn them into source RTables.
  2. The **Transform** phase, where we run our ETL-logic code in order to produce the target RTables from the source RTables. All the ETL-logic code is embedded in the `myETL` function, which we execute with the `runETL` function and providing the appropriate source RTables.
  3. Finally, the **Load** phase, where we save our target RTables to our target schema (in our case the target schema is just 3 csv files residing in the local file system) 
+
+We recommend that you follow this 3-phase pattern in all of your ETL programs.
 ```Haskell
 import Etl.Julius
 import RTable.Data.CSV  (readCSV,  writeCSV,  toRTable, fromRTable)
@@ -840,7 +842,7 @@ main = do
 		srcTab2 = toRTable srcTab2MData srcTab2csv
 
 	-- 2. Run you ETL-logic code to produce target RTables
-	[trgTab1,trgTab2,trgTab3] <- runEtl [srcTab1,srcTab2] myEtl
+	[trgTab1,trgTab2,trgTab3] <- runEtl myEtl [srcTab1,srcTab2]
 
 	-- 3. Save Results into 3 CSV files - one for each target RTable
 	writeCSV "trgTab1.csv" $ fromRTable trgTab1MData trgTab1
