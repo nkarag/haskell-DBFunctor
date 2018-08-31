@@ -410,6 +410,8 @@ module RTable.Core (
     ,rAgg
     ,runGroupBy
     ,rG
+    ,groupNoAggList
+    ,groupNoAgg
     ,runOrderBy 
     ,rO
     ,runCombinedROp 
@@ -449,6 +451,7 @@ module RTable.Core (
 
     -- ** Conversions
     ,rtableToList
+    ,concatRTab
     ,rtupleToList
     ,toListRDataType
     ,toText    
@@ -576,7 +579,7 @@ import qualified Data.Typeable as TB --(typeOf, Typeable)
 import qualified Data.Dynamic as D  -- https://hackage.haskell.org/package/base-4.9.1.0/docs/Data-Dynamic.html
 
 -- Data.List
-import Data.List (last, all, elem, map, zip, zipWith, elemIndex, sortOn, union, intersect, (\\), take, length, repeat, groupBy, sort, sortBy, foldl', foldr, foldr1, foldl',head)
+import Data.List (last, all, elem, map, null, zip, zipWith, elemIndex, sortOn, union, intersect, (\\), take, length, repeat, groupBy, sort, sortBy, foldl', foldr, foldr1, foldl',head)
 -- Data.Maybe
 import Data.Maybe (fromJust)
 -- Data.Char
@@ -2637,20 +2640,20 @@ data RAggOperation =
         | RMax ColumnName
 --}
 
--- | Implements the GROUP BY operation over an RTable.
-runGroupBy ::
-       RGroupPredicate   -- ^ Grouping predicate, in order to form the groups of RTuples (it defines when two RTuples should be included in the same group)
-    -> [RAggOperation]   -- ^ Aggregations to be applied on specific columns
+-- | Implement a grouping operation over an 'RTable'. No aggregation takes place.
+-- It returns the individual groups as separate 'RTable's in a list. In total the initial set of 'RTuple's is retained.
+-- If an empty 'RTable' is provided as input, then a [\"empty RTable\"] is returned.
+groupNoAggList :: 
+       RGroupPredicate   -- ^ Grouping predicate, in order to form the groups of 'RTuple's (it defines when two 'RTuple's should be included in the same group)
     -> [ColumnName]      -- ^ List of grouping column names (GROUP BY clause in SQL)
                          --   We assume that all RTuples in the same group have the same value in these columns
-    -> RTable            -- ^ input RTable
-    -> RTable            -- ^ output RTable
-runGroupBy gpred aggOps cols rtab =  
+    -> RTable            -- ^ input 'RTable'
+    -> [RTable]          -- ^ output list of 'RTable's where each one corresponds to a group
+groupNoAggList gpred cols rtab = 
     if isRTabEmpty rtab
-        then emptyRTable
+        then [emptyRTable]
         else 
-            let -- rtupList = V.toList rtab
-                
+            let 
                 -- 1. form the groups of RTuples
                     -- a. first sort the Rtuples based on the grouping columns
                     -- This is a very important step if we want the groupBy operation to work. This is because grouping on lists is
@@ -2662,11 +2665,6 @@ runGroupBy gpred aggOps cols rtab =
 
                 -- debug
                -- !dummy1 = trace (show listOfRTupSorted) True
-
-                   -- Data.List.sortBy (\t1 t2 -> if (gpred t1 t2) then EQ else compare (rtupleToList t1) (rtupleToList t2) ) rtupList --(t1!(Data.List.head . HM.keys $ t1)) (t2!(Data.List.head . HM.keys $ t2)) ) rtupList
-                                   
-                                   -- Data.List.map (HM.fromList) $ Data.List.sort $ Data.List.map (HM.toList) rtupList 
-                                    --(t1!(Data.List.head . HM.keys $ t1)) (t2!(Data.List.head . HM.keys $ t2)) ) rtupList
                     
                     -- b then produce the groups
                 listOfRTupGroupLists = Data.List.groupBy gpred listOfRTupSorted       
@@ -2674,36 +2672,104 @@ runGroupBy gpred aggOps cols rtab =
                 -- debug
                 -- !dummy2 = trace (show listOfRTupGroupLists) True
 
-                -- 2. turn each (sub)list of Rtuples representing a Group into an RTable in order to apply aggregation
+                -- 2. turn each (sub)list of RTuples representing a Group into an RTable 
                 --    Note: each RTable in this list will hold a group of RTuples that all have the same values in the input grouping columns
                 --    (which must be compatible with the input grouping predicate)
                 listofGroupRtabs = Data.List.map (rtableFromList) listOfRTupGroupLists
-                -- 3. We need to keep the values of the grouping columns (e.g., by selecting the fisrt row) from each one of these RTables,
-                --    in order to "join them" with the aggregated RTuples that will be produced by the aggregation operations
-                --    The following will produce a list of singleton RTables.
-                listOfGroupingColumnsRtabs = Data.List.map ( (limit 1) . (p cols) ) listofGroupRtabs
+            in listofGroupRtabs
 
-                -- debug
-                -- !dummy3 = trace (show listOfGroupingColumnsRtabs) True
+-- | Concatenates a list of 'RTable's to a single RTable. Essentially, it unions (see 'runUnion') all 'RTable's of the list.
+concatRTab :: [RTable] -> RTable
+concatRTab rtabsl = Data.List.foldr1 (u) rtabsl
 
-                -- 4. Aggregate each group according to input and produce a list of (aggregated singleton RTables)
-                listOfAggregatedRtabs = Data.List.map (rAgg aggOps) listofGroupRtabs
+-- | Implement a grouping operation over an 'RTable'. No aggregation takes place.
+-- The output 'RTable' has exactly the same 'RTuple's, as the input, but these are grouped based on the input grouping predicate.
+-- If an empty 'RTable' is provided as input, then an empty 'RTable' is returned.
+groupNoAgg :: 
+       RGroupPredicate   -- ^ Grouping predicate, in order to form the groups of 'RTuple's (it defines when two 'RTuple's should be included in the same group)
+    -> [ColumnName]      -- ^ List of grouping column names (GROUP BY clause in SQL)
+                         --   We assume that all 'RTuple's in the same group have the same value in these columns
+    -> RTable            -- ^ input 'RTable'
+    -> RTable            -- ^ output 'RTable'
+groupNoAgg gpred cols rtab = 
+    if isRTabEmpty rtab
+        then emptyRTable
+        else 
+            let
+                listofGroupRtabs = groupNoAggList gpred cols rtab
+            in concatRTab listofGroupRtabs -- Data.List.foldr1 (u) listofGroupRtabs
 
-                -- debug
-                -- !dummy4 = trace (show listOfAggregatedRtabs ) True
+-- | Implements the GROUP BY operation over an 'RTable'. 
+runGroupBy ::
+       RGroupPredicate   -- ^ Grouping predicate, in order to form the groups of RTuples (it defines when two RTuples should be included in the same group)
+    -> [RAggOperation]   -- ^ Aggregations to be applied on specific columns
+    -> [ColumnName]      -- ^ List of grouping column names (GROUP BY clause in SQL)
+                         --   We assume that all RTuples in the same group have the same value in these columns
+    -> RTable            -- ^ input RTable
+    -> RTable            -- ^ output RTable
+runGroupBy gpred aggOps cols rtab =  
+    if isRTabEmpty rtab
+        then emptyRTable
+        else 
+            if Data.List.null aggOps -- if the aggregation list is empty
+                then
+                    -- Do a grouping with no aggregation
+                    groupNoAgg gpred cols rtab
+                else            
+                    let -- rtupList = V.toList rtab
+                        
+                        -- 1. form the groups of RTuples
+                            -- a. first sort the Rtuples based on the grouping columns
+                            -- This is a very important step if we want the groupBy operation to work. This is because grouping on lists is
+                            -- implemented like this: group "Mississippi" = ["M","i","ss","i","ss","i","pp","i"]
+                            -- So we have to sort the list first in order to get the right grouping:
+                            -- group (sort "Mississippi") = ["M","iiii","pp","ssss"]                
+                        --listOfRTupSorted = rtableToList $ runOrderBy (createOrderingSpec cols) rtab
 
-                -- 5. Join the two list of singleton RTables
-                listOfFinalRtabs = Data.List.zipWith (iJ (\t1 t2 -> True)) listOfGroupingColumnsRtabs listOfAggregatedRtabs
+                        -- debug
+                        -- !dummy1 = trace (show listOfRTupSorted) True
+                            
+                            -- b then produce the groups
+                        --listOfRTupGroupLists = Data.List.groupBy gpred listOfRTupSorted       
 
-                -- debug
-                -- !dummy5 = trace (show listOfFinalRtabs) True
+                        -- debug
+                        -- !dummy2 = trace (show listOfRTupGroupLists) True
+
+                        -- 2. turn each (sub)list of Rtuples representing a Group into an RTable in order to apply aggregation
+                        --    Note: each RTable in this list will hold a group of RTuples that all have the same values in the input grouping columns
+                        --    (which must be compatible with the input grouping predicate)
+                        --listofGroupRtabs = Data.List.map (rtableFromList) listOfRTupGroupLists
+
+                        listofGroupRtabs = groupNoAggList gpred cols rtab
+
+                        -- 3. We need to keep the values of the grouping columns (e.g., by selecting the fisrt row) from each one of these RTables,
+                        --    in order to "join them" with the aggregated RTuples that will be produced by the aggregation operations
+                        --    The following will produce a list of singleton RTables.
+                        listOfGroupingColumnsRtabs = Data.List.map ( (limit 1) . (p cols) ) listofGroupRtabs
+
+                        -- debug
+                        -- !dummy3 = trace (show listOfGroupingColumnsRtabs) True
+
+                        -- 4. Aggregate each group according to input and produce a list of (aggregated singleton RTables)
+                        listOfAggregatedRtabs = Data.List.map (rAgg aggOps) listofGroupRtabs
+
+                        -- debug
+                        -- !dummy4 = trace (show listOfAggregatedRtabs ) True
+
+                        -- 5. Join the two list of singleton RTables
+                        listOfFinalRtabs = Data.List.zipWith (iJ (\t1 t2 -> True)) listOfGroupingColumnsRtabs listOfAggregatedRtabs
+
+                        -- debug
+                        -- !dummy5 = trace (show listOfFinalRtabs) True
 
 
-                -- 6. Union all individual singleton RTables into the final RTable
-            in  Data.List.foldr1 (u) listOfFinalRtabs
-            where
-                createOrderingSpec :: [ColumnName] -> [(ColumnName, OrderingSpec)]
-                createOrderingSpec cols = Data.List.zip cols (Data.List.take (Data.List.length cols) $ Data.List.repeat Asc)
+                        -- 6. Union all individual singleton RTables into the final RTable
+                    in  Data.List.foldr1 (u) listOfFinalRtabs
+            
+
+-- | Helper function to returned a fixed Ordering Specification 'OrderingSpec' from a list of 'ColumnName's
+createOrderingSpec :: [ColumnName] -> [(ColumnName, OrderingSpec)]
+createOrderingSpec cols = Data.List.zip cols (Data.List.take (Data.List.length cols) $ Data.List.repeat Asc)
 
 -- | A short name for the 'runCombinedROp' function
 rComb = runCombinedROp

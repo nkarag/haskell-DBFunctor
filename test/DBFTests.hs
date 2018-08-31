@@ -830,14 +830,47 @@ main = do
                                     ,Max "Name" $ As "maxName"]  $ From $ Tab rtabNew)
                             $ GroupOn (\t1 t2 ->  t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime"))
                 )
+
+        rtabNew17_J2 = E.etl $ evalJulius $
+            EtlMapStart
+            :-> (EtlR $
+                    ROpStart
+                    :.  (GroupBy ["Name", "MyTime"] 
+                            (AggOn [] {-[ Sum "Number" $ As "SumNumber"
+                                    ,Count "Name" $ As "CountName"
+                                    --,Avg "Number" $ As "AvgNumber" 
+                                    ,Sum "Name" $ As "SumName"
+                                    ,Count "DNumber" $ As "CountDNumber"
+                                    ,Max "DNumber" $ As "maxDNumber"
+                                    --,Max "Number" $ As "maxNumber"
+                                    ,Max "Name" $ As "maxName"]-}  $ From $ Tab rtabNew)
+                            $ GroupOn (\t1 t2 ->  t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime"))
+                )
+
     
   --  print listOfRTupGroupLists
     writeResult fo "_t17.csv" rtmdata17 rtabNew17
-    writeResult fo "_t17_J.csv" rtmdata17 rtabNew17_J
+   -- writeResult fo "_t17_J.csv" rtmdata17 rtabNew17_J
 
     putStrLn "#### TEST GROUP BY ###"
     T.printRTable rtabNew 
     T.printRTable rtabNew17_J
+
+    -- test groupNoAgg function
+    putStrLn "GroupBy with [] AggOp list"
+    T.printRTable rtabNew17_J2
+    putStrLn "Test groupNoAgg function"
+    T.printRTable $
+        groupNoAgg  (\t1 t2 -> t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime")
+                    ["Name", "MyTime"]
+                    rtabNew
+
+    -- test groupNoAggList function                    
+    putStrLn "Test groupNoAggList function"
+    mapM_ (T.printRTable) $
+        groupNoAggList  (\t1 t2 -> t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime")
+                    ["Name", "MyTime"]
+                    rtabNew
     
     --print csvNew2
     --return ()
