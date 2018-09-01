@@ -850,7 +850,7 @@ main = do
     
   --  print listOfRTupGroupLists
     writeResult fo "_t17.csv" rtmdata17 rtabNew17
-   -- writeResult fo "_t17_J.csv" rtmdata17 rtabNew17_J
+    writeResult fo "_t17_J.csv" rtmdata17 rtabNew17_J
 
     putStrLn "#### TEST GROUP BY ###"
     T.printRTable rtabNew 
@@ -871,7 +871,56 @@ main = do
         groupNoAggList  (\t1 t2 -> t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime")
                     ["Name", "MyTime"]
                     rtabNew
-    
+
+
+    putStrLn "#### TEST CUSTOM Aggregation ###"
+    putStrLn "Implement a custom listagg()"
+
+    rtabNew18 <- runJulius $
+            EtlMapStart
+            :-> (EtlR $
+                    ROpStart
+                    :.  (GroupBy ["Name", "MyTime"] 
+                            (AggOn [    {-Sum "Number" $ As "SumNumber"
+                                        ,Count "Name" $ As "CountName"
+                                        --,Avg "Number" $ As "AvgNumber" 
+                                        ,Sum "Name" $ As "SumName"
+                                        ,Count "DNumber" $ As "CountDNumber"
+                                        ,Max "DNumber" $ As "maxDNumber"
+                                        --,Max "Number" $ As "maxNumber"
+                                        ,Max "Name" $ As "maxName"
+                                        ,-}GenAgg "Name" (As "ListAggName") $ AggBy $ myListAgg (pack ";")
+                                    ]  $ From $ Tab rtabNew)
+                            $ GroupOn (\t1 t2 ->  t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime"))
+                )
+
+    T.printRTable rtabNew18
+
+    where
+        myListAgg :: Text -> AggFunction
+        myListAgg delimiter col rtab = 
+            rdatatypeFoldr' ( \rtup accValue -> 
+                if isNotNull (rtup <!> col)  && (isNotNull accValue)
+                    then
+                        rtup <!> col `rdtappend` (RText delimiter) `rdtappend` accValue
+                    else
+                        --if (getRTupColValue src) rtup == Null && accValue /= Null 
+                        if isNull (rtup <!> col) && (isNotNull accValue)
+                            then
+                                accValue  -- ignore Null value
+                            else
+                                --if (getRTupColValue src) rtup /= Null && accValue == Null 
+                                if isNotNull (rtup <!> col) && (isNull accValue)
+                                    then
+                                        case isText (rtup <!> col) of
+                                            True ->  (rtup <!> col) 
+                                            False -> Null
+                                    else
+                                        Null -- agg of Nulls is Null
+                            )
+                            Null
+                            rtab
+
     --print csvNew2
     --return ()
     

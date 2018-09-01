@@ -499,7 +499,8 @@ module Etl.Julius (
     ,FromRTable (..)
     ,Aggregate (..)    
     ,AggOp (..)    
-    ,AsColumn (..)    
+    ,AsColumn (..)
+    ,AggBy (..)    
     ,GroupOnPred (..)    
     ,TabLiteral (..)
     ,TabExprJoin (..)    
@@ -666,11 +667,17 @@ data Aggregate = AggOn [AggOp] FromRTable
 
 -- | These are the available aggregate operation clauses
 data AggOp = 
-                Sum ColumnName AsColumn
-            |   Count ColumnName AsColumn    
+                Sum ColumnName AsColumn      
+            |   Count ColumnName AsColumn    -- ^ Count aggregation (no distinct)
+            -- |   CountDist ColumnName AsColumn    -- ^ Count distinct aggregation. Returns the distinct number of values for this column.
+            -- |   CountStar AsColumn              -- ^ Returns the number of 'RTuple's in the 'RTable' (i.e., @count(*)@ in SQL)           
             |   Min ColumnName AsColumn
             |   Max ColumnName AsColumn
-            |   Avg ColumnName AsColumn
+            |   Avg ColumnName AsColumn      -- ^ Average aggregation
+            |   GenAgg ColumnName AsColumn AggBy    -- ^ A custom aggregate operation
+
+-- | Julius Clause to provide a custom aggregation function
+data AggBy = AggBy AggFunction
 
 -- | Defines the name of the column that will hold the aggregate operation result.
 -- It resembles the \"AS\" clause in SQL.
@@ -1296,6 +1303,7 @@ aggOpExprToAggOp (aggopExpr : rest) =
                     Min srcCol (As trgCol)      -> (raggMin srcCol trgCol)
                     Max srcCol (As trgCol)      -> (raggMax srcCol trgCol)
                     Avg srcCol (As trgCol)      -> (raggAvg srcCol trgCol)
+                    GenAgg srcCol (As trgCol) (AggBy aggf)  -> (raggGenericAgg aggf srcCol trgCol)
     in aggop : (aggOpExprToAggOp rest)
 
             

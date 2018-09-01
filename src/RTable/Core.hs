@@ -299,6 +299,8 @@ module RTable.Core (
     ,BinaryRTableOperation    
     ,RAggOperation (..)
     -- *** Available Aggregate Operations
+    ,AggFunction (..)
+    ,raggGenericAgg
     ,raggSum
     ,raggCount
     ,raggAvg
@@ -429,6 +431,7 @@ module RTable.Core (
     ,rdtappend  
     ,stripRText
     ,removeCharAroundRText
+    ,isText
     -- ** NULL-Related
     ,nvlRTable        
     ,nvlRTuple    
@@ -454,11 +457,14 @@ module RTable.Core (
     ,concatRTab
     ,rtupleToList
     ,toListRDataType
-    ,toText    
+    ,toText
+    ,fromText    
     -- ** Container Functions
     ,rtabMap
     ,rtabFoldr'
     ,rtabFoldl'
+    ,rdatatypeFoldr'
+    ,rdatatypeFoldl'
     -- * Modify RTable (DML)
     ,insertAppendRTab    
     ,insertPrependRTab
@@ -1172,7 +1178,7 @@ createRTimeStamp fmt timeVal =
 
         parseTime _ = RTimestampVal {year = 2999, month = 12, day = 31, hours24 = 11, minutes = 59, seconds = 59}
 
--- | Convert from an RDate or RTimeStamp to a UTCTime
+-- Convert from an RDate or RTimeStamp to a UTCTime
 {-
 toUTCTime :: RDataType -> Maybe UTCTime
 toUTCTime rdt = 
@@ -1188,6 +1194,15 @@ fromUTCTime :: UTCTime -> RDataType
 toText :: RDataType -> Maybe T.Text
 toText (RText t) = Just t
 toText _ = Nothing
+
+-- | Return an 'RDataType' from 'Text'
+fromText :: T.Text -> RDataType
+fromText t = RText t
+
+-- | Returns 'True' only if this is an 'RText'
+isText :: RDataType -> Bool
+isText (RText t) = True
+isText _ = False
 
 -- | Standard timestamp format
 stdTimestampFormat = "DD/MM/YYYY HH24:MI:SS"
@@ -1558,10 +1573,27 @@ type RGroupPredicate = RTuple -> RTuple -> Bool
 -- with the 'runAggregation' (or 'rAgg') functions.
 --
 data RAggOperation = RAggOperation {
-                         sourceCol :: ColumnName    -- ^ Source column
-                        ,targetCol :: ColumnName    -- ^ Target column
-                        ,aggFunc :: RTable -> RTuple  -- ^ here we define the aggegate function to be applied on an RTable
+                         sourceCol :: ColumnName        -- ^ Source column
+                        ,targetCol :: ColumnName        -- ^ Target column
+                        ,aggFunc   :: RTable -> RTuple  -- ^ here we define the aggegate function to be applied on an RTable
                     }
+
+-- | Aggregation Function type.
+-- An aggregation function receives as input a source column (i.e., a 'ColumnName') of a source 'RTable' and returns
+-- an aggregated value, which is the result of the aggregation on the values of the source column.
+type AggFunction = ColumnName -> RTable -> RDataType 
+
+-- | Returns an 'RAggOperation' with a custom aggregation function provided as input
+raggGenericAgg ::
+        AggFunction -- ^ custom aggregation function 
+    ->  ColumnName -- ^ source column
+    ->  ColumnName -- ^ target column
+    ->  RAggOperation
+raggGenericAgg aggf src trg = RAggOperation {
+                 sourceCol = src
+                ,targetCol = trg                                 
+                ,aggFunc = \rtab -> createRtuple [(trg, aggf src rtab)]  
+        }
 
 -- | The Sum aggregate operation
 raggSum :: 
@@ -1571,12 +1603,12 @@ raggSum ::
 raggSum src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg                                 
-                ,aggFunc = \rtab -> createRtuple [(trg, sumFold src trg rtab)]  
+                ,aggFunc = \rtab -> createRtuple [(trg, sumFold src rtab)]  
         }
 
 -- | A helper function in raggSum that implements the basic fold for sum aggregation        
-sumFold :: ColumnName -> ColumnName -> RTable -> RDataType
-sumFold src trg rtab =         
+sumFold :: AggFunction --ColumnName -> ColumnName -> RTable -> RDataType
+sumFold src rtab =         
     V.foldr' ( \rtup accValue ->                                                                     
                     --if (getRTupColValue src) rtup /= Null && accValue /= Null
                     if (isNotNull $ (getRTupColValue src) rtup)  && (isNotNull accValue)
@@ -1607,12 +1639,12 @@ raggCount ::
 raggCount src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg
-                ,aggFunc = \rtab -> createRtuple [(trg, countFold src trg rtab)]  
+                ,aggFunc = \rtab -> createRtuple [(trg, countFold src rtab)]  
         }
 
 -- | A helper function in raggCount that implements the basic fold for Count aggregation        
-countFold :: ColumnName -> ColumnName -> RTable -> RDataType
-countFold src trg rtab =         
+countFold :: AggFunction -- ColumnName -> ColumnName -> RTable -> RDataType
+countFold src rtab =         
     V.foldr' ( \rtup accValue ->                                                                     
                             --if (getRTupColValue src) rtup /= Null && accValue /= Null
                             if (isNotNull $ (getRTupColValue src) rtup)  && (isNotNull accValue)  
@@ -1642,8 +1674,8 @@ raggAvg src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg
                 ,aggFunc = \rtab -> createRtuple [(trg, let 
-                                                             sum = sumFold src trg rtab
-                                                             cnt =  countFold src trg rtab
+                                                             sum = sumFold src rtab
+                                                             cnt =  countFold src rtab
                                                         in case (sum,cnt) of
                                                                 (RInt s, RInt c) -> RDouble (fromIntegral s / fromIntegral c)
                                                                 (RDouble s, RInt c) -> RDouble (s / fromIntegral c)
@@ -1659,13 +1691,13 @@ raggMax ::
 raggMax src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg
-                ,aggFunc = \rtab -> createRtuple [(trg, maxFold src trg rtab)]  
+                ,aggFunc = \rtab -> createRtuple [(trg, maxFold src rtab)]  
         }        
 
 
 -- | A helper function in raggMax that implements the basic fold for Max aggregation        
-maxFold :: ColumnName -> ColumnName -> RTable -> RDataType
-maxFold src trg rtab =         
+maxFold :: AggFunction -- ColumnName -> ColumnName -> RTable -> RDataType
+maxFold src rtab =         
     V.foldr' ( \rtup accValue ->         
                                 --if (getRTupColValue src) rtup /= Null && accValue /= Null
                                 if (isNotNull $ (getRTupColValue src) rtup)  && (isNotNull accValue)  
@@ -1694,12 +1726,12 @@ raggMin ::
 raggMin src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg
-                ,aggFunc = \rtab -> createRtuple [(trg, minFold src trg rtab)]  
+                ,aggFunc = \rtab -> createRtuple [(trg, minFold src rtab)]  
         }        
 
 -- | A helper function in raggMin that implements the basic fold for Min aggregation        
-minFold :: ColumnName -> ColumnName -> RTable -> RDataType
-minFold src trg rtab =         
+minFold :: AggFunction -- ColumnName -> ColumnName -> RTable -> RDataType
+minFold src rtab =         
     V.foldr' ( \rtup accValue ->         
                                 --if (getRTupColValue src) rtup /= Null && accValue /= Null
                                 if (isNotNull $ (getRTupColValue src) rtup)  && (isNotNull accValue)
@@ -1848,7 +1880,7 @@ isNullRTuple t =
 
 -- * ########## RTable "Functional" Operations ##############
 
--- | This is a fold operation on a RTable.
+-- | This is a fold operation on a 'RTable' that returns an 'RTable'.
 -- It is similar with :
 -- @
 --  foldr' :: (a -> b -> b) -> b -> Vector a -> b 
@@ -1857,7 +1889,16 @@ isNullRTuple t =
 rtabFoldr' :: (RTuple -> RTable -> RTable) -> RTable -> RTable -> RTable
 rtabFoldr' f accum rtab = V.foldr' f accum rtab
 
--- | This is a fold operation on a RTable.
+-- | This is a fold operation on a 'RTable' that returns an 'RDataType' value.
+-- It is similar with :
+-- @
+--  foldr' :: (a -> b -> b) -> b -> Vector a -> b 
+-- @
+-- of Vector, which is an O(n) Right fold with a strict accumulator
+rdatatypeFoldr' :: (RTuple -> RDataType -> RDataType) -> RDataType -> RTable -> RDataType
+rdatatypeFoldr' f accum rtab = V.foldr' f accum rtab
+
+-- | This is a fold operation on 'RTable' that returns an 'RTable'.
 -- It is similar with :
 -- @
 --  foldl' :: (a -> b -> a) -> a -> Vector b -> a
@@ -1865,6 +1906,16 @@ rtabFoldr' f accum rtab = V.foldr' f accum rtab
 -- of Vector, which is an O(n) Left fold with a strict accumulator
 rtabFoldl' :: (RTable -> RTuple -> RTable) -> RTable -> RTable -> RTable
 rtabFoldl' f accum rtab = V.foldl' f accum rtab
+
+
+-- | This is a fold operation on 'RTable' that returns an 'RDataType' value
+-- It is similar with :
+-- @
+--  foldl' :: (a -> b -> a) -> a -> Vector b -> a
+-- @
+-- of Vector, which is an O(n) Left fold with a strict accumulator
+rdatatypeFoldl' :: (RDataType -> RTuple -> RDataType) -> RDataType -> RTable -> RDataType
+rdatatypeFoldl' f accum rtab = V.foldl' f accum rtab
 
 
 -- | Map function over an RTable
@@ -2709,62 +2760,63 @@ runGroupBy ::
     -> RTable            -- ^ output RTable
 runGroupBy gpred aggOps cols rtab =  
     if isRTabEmpty rtab
-        then emptyRTable
+        then 
+            emptyRTable
         else 
-            if Data.List.null aggOps -- if the aggregation list is empty
-                then
-                    -- Do a grouping with no aggregation
-                    groupNoAgg gpred cols rtab
-                else            
-                    let -- rtupList = V.toList rtab
-                        
-                        -- 1. form the groups of RTuples
-                            -- a. first sort the Rtuples based on the grouping columns
-                            -- This is a very important step if we want the groupBy operation to work. This is because grouping on lists is
-                            -- implemented like this: group "Mississippi" = ["M","i","ss","i","ss","i","pp","i"]
-                            -- So we have to sort the list first in order to get the right grouping:
-                            -- group (sort "Mississippi") = ["M","iiii","pp","ssss"]                
-                        --listOfRTupSorted = rtableToList $ runOrderBy (createOrderingSpec cols) rtab
+            let -- rtupList = V.toList rtab
+                
+                -- 1. form the groups of RTuples
+                    -- a. first sort the Rtuples based on the grouping columns
+                    -- This is a very important step if we want the groupBy operation to work. This is because grouping on lists is
+                    -- implemented like this: group "Mississippi" = ["M","i","ss","i","ss","i","pp","i"]
+                    -- So we have to sort the list first in order to get the right grouping:
+                    -- group (sort "Mississippi") = ["M","iiii","pp","ssss"]                
+                --listOfRTupSorted = rtableToList $ runOrderBy (createOrderingSpec cols) rtab
 
-                        -- debug
-                        -- !dummy1 = trace (show listOfRTupSorted) True
-                            
-                            -- b then produce the groups
-                        --listOfRTupGroupLists = Data.List.groupBy gpred listOfRTupSorted       
+                -- debug
+                -- !dummy1 = trace (show listOfRTupSorted) True
+                    
+                    -- b then produce the groups
+                --listOfRTupGroupLists = Data.List.groupBy gpred listOfRTupSorted       
 
-                        -- debug
-                        -- !dummy2 = trace (show listOfRTupGroupLists) True
+                -- debug
+                -- !dummy2 = trace (show listOfRTupGroupLists) True
 
-                        -- 2. turn each (sub)list of Rtuples representing a Group into an RTable in order to apply aggregation
-                        --    Note: each RTable in this list will hold a group of RTuples that all have the same values in the input grouping columns
-                        --    (which must be compatible with the input grouping predicate)
-                        --listofGroupRtabs = Data.List.map (rtableFromList) listOfRTupGroupLists
+                -- 2. turn each (sub)list of Rtuples representing a Group into an RTable in order to apply aggregation
+                --    Note: each RTable in this list will hold a group of RTuples that all have the same values in the input grouping columns
+                --    (which must be compatible with the input grouping predicate)
+                --listofGroupRtabs = Data.List.map (rtableFromList) listOfRTupGroupLists
 
-                        listofGroupRtabs = groupNoAggList gpred cols rtab
+                listofGroupRtabs = groupNoAggList gpred cols rtab
 
-                        -- 3. We need to keep the values of the grouping columns (e.g., by selecting the fisrt row) from each one of these RTables,
-                        --    in order to "join them" with the aggregated RTuples that will be produced by the aggregation operations
-                        --    The following will produce a list of singleton RTables.
-                        listOfGroupingColumnsRtabs = Data.List.map ( (limit 1) . (p cols) ) listofGroupRtabs
+                -- 3. We need to keep the values of the grouping columns (e.g., by selecting the fisrt row) from each one of these RTables,
+                --    in order to "join them" with the aggregated RTuples that will be produced by the aggregation operations
+                --    The following will produce a list of singleton RTables.
+                listOfGroupingColumnsRtabs = Data.List.map ( (limit 1) . (p cols) ) listofGroupRtabs
 
-                        -- debug
-                        -- !dummy3 = trace (show listOfGroupingColumnsRtabs) True
+                -- debug
+                -- !dummy3 = trace (show listOfGroupingColumnsRtabs) True
 
-                        -- 4. Aggregate each group according to input and produce a list of (aggregated singleton RTables)
-                        listOfAggregatedRtabs = Data.List.map (rAgg aggOps) listofGroupRtabs
+                -- 4. Aggregate each group according to input and produce a list of (aggregated singleton RTables)
+                listOfAggregatedRtabs = Data.List.map (rAgg aggOps) listofGroupRtabs
 
-                        -- debug
-                        -- !dummy4 = trace (show listOfAggregatedRtabs ) True
+                -- debug
+                -- !dummy4 = trace (show listOfAggregatedRtabs ) True
 
-                        -- 5. Join the two list of singleton RTables
-                        listOfFinalRtabs = Data.List.zipWith (iJ (\t1 t2 -> True)) listOfGroupingColumnsRtabs listOfAggregatedRtabs
+                -- 5. Join the two list of singleton RTables
+                listOfFinalRtabs = 
+                    if Data.List.null aggOps -- if the aggregation list is empty
+                        then
+                            listOfGroupingColumnsRtabs -- then returned just the group by columns
+                        else
+                            Data.List.zipWith (iJ (\t1 t2 -> True)) listOfGroupingColumnsRtabs listOfAggregatedRtabs
 
-                        -- debug
-                        -- !dummy5 = trace (show listOfFinalRtabs) True
+                -- debug
+                -- !dummy5 = trace (show listOfFinalRtabs) True
 
 
-                        -- 6. Union all individual singleton RTables into the final RTable
-                    in  Data.List.foldr1 (u) listOfFinalRtabs
+                -- 6. Union all individual singleton RTables into the final RTable
+            in  Data.List.foldr1 (u) listOfFinalRtabs
             
 
 -- | Helper function to returned a fixed Ordering Specification 'OrderingSpec' from a list of 'ColumnName's
