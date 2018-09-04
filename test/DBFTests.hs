@@ -404,7 +404,7 @@ main = do
 
     -- Test a RMapNx1 column mapping
     let 
-        cmap4 = E.RMapNx1 {E.srcColGrp = ["Name","MyTime"], E.removeSrcCol = E.Yes, E.trgCol = "New_Nx1_Col", E.transformNx1 = (\[n, T.RTime{T.rtime = t}] -> n `rdtappend` (T.RText "<---->") `rdtappend` (T.rTimeStampToRText T.stdTimestampFormat t)), E.srcRTupleFilter = \_ -> True}
+        cmap4 = E.RMapNx1 {E.srcColGrp = ["Name","MyTime"], E.removeSrcCol = E.Yes, E.trgCol = "New_Nx1_Col", E.transformNx1 = (\[n, T.RTime{T.rtime = t}] -> n `rdtappend` (T.RText "<---->") `rdtappend` (T.rTimestampToRText T.stdTimestampFormat t)), E.srcRTupleFilter = \_ -> True}
         rtabNew9 = E.runCM cmap4 rtabNew8
         rtmdata9 = T.createRTableMData ( "TestTable9", 
                                          [ -- ("Name", T.Varchar),
@@ -425,7 +425,7 @@ main = do
             :-> (EtlC $
                     Source ["Name","MyTime"] $
                     Target ["New_Nx1_Col"] $
-                    By (\[n, T.RTime{T.rtime = t}] -> [n `rdtappend` (T.RText "<---->") `rdtappend` (T.rTimeStampToRText T.stdTimestampFormat t)]) (On $ Tab rtabNew8)
+                    By (\[n, T.RTime{T.rtime = t}] -> [n `rdtappend` (T.RText "<---->") `rdtappend` (T.rTimestampToRText T.stdTimestampFormat t)]) (On $ Tab rtabNew8)
                     RemoveSrc $
                     FilterBy (\_ -> True)
                 )

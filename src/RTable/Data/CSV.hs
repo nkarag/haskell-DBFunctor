@@ -348,7 +348,7 @@ csvToRTable m c =
                                         Varchar     -> RText $ if False then trace ("Creating RText for column " ++ (T.unpack $ name ci)) $ (val::T.Text) else (val::T.Text)                                                                                                                        
                                         Date fmt    -> RDate {   rdate = (val::T.Text) {-decodeUtf8 col-} , dtformat = fmt } -- (val::T.Text)
                                                                  --getDateFormat (val::String)}
-                                        Timestamp fmt -> RTime $ createRTimeStamp (T.unpack fmt) (Data.ByteString.Char8.unpack col)  -- Data.ByteString.Char8.unpack :: ByteString -> [Char] 
+                                        Timestamp fmt -> RTime $ createRTimestamp (T.unpack fmt) (Data.ByteString.Char8.unpack col)  -- Data.ByteString.Char8.unpack :: ByteString -> [Char] 
                                         Double      -> RDouble (val::Double) --(read (Data.ByteString.Char8.unpack col) :: Double)  -- ((read $ show val) :: Double)
                                     where
                                     

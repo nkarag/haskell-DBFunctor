@@ -423,11 +423,15 @@ module RTable.Core (
     ,decodeRTable
     ,decodeColValue
     -- ** Date/Time
-    ,createRTimeStamp    
-    ,rTimeStampToRText
+    ,toRTimestamp
+    ,createRTimestamp    
+    ,rTimestampToRText
     ,stdTimestampFormat
     ,stdDateFormat
     -- ** Character/Text  
+    ,instrRText
+    ,instr
+    ,instrText
     ,rdtappend  
     ,stripRText
     ,removeCharAroundRText
@@ -490,6 +494,9 @@ module RTable.Core (
     ,toListColumnInfo
     -- * Exceptions
     ,ColumnDoesNotExist (..)
+    ,UnsupportedTimeStampFormat (..)
+    --,RTimestampFormatLengthMismatch (..)
+    ,EmptyInputStringsInToRTimestamp (..)
 
     -- * RTable IO Operations
     -- ** RTable Printing and Formatting
@@ -585,9 +592,9 @@ import qualified Data.Typeable as TB --(typeOf, Typeable)
 import qualified Data.Dynamic as D  -- https://hackage.haskell.org/package/base-4.9.1.0/docs/Data-Dynamic.html
 
 -- Data.List
-import Data.List (last, all, elem, map, null, zip, zipWith, elemIndex, sortOn, union, intersect, (\\), take, length, repeat, groupBy, sort, sortBy, foldl', foldr, foldr1, foldl',head)
+import Data.List (last, all, elem, map, null, zip, zipWith, elemIndex, sortOn, union, intersect, (\\), take, length, repeat, groupBy, sort, sortBy, foldl', foldr, foldr1, foldl',head, findIndex, tails, isPrefixOf)
 -- Data.Maybe
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, fromMaybe)
 -- Data.Char
 import Data.Char (toUpper,digitToInt, isDigit)
 -- Data.Monoid
@@ -603,6 +610,7 @@ import Control.Exception
 
 import GHC.Generics     (Generic)
 import Control.DeepSeq
+import Data.String.Utils (replace)
 
 -- import Control.Monad.IO.Class (liftIO)
 
@@ -1095,12 +1103,215 @@ instance Ord RTimestamp where
                                                     then compare s1 s2
                                                     else EQ
 
--- | Creates an RTimestamp data type from an input timestamp format string and a timestamp value represented as Text.
-createRTimeStamp :: 
-    String      -- ^ Format string e.g., "DD/MM/YYYY HH24:MI:SS"
+
+-- | Returns an 'RTimestamp' from an input 'String' and a format 'String'.
+--
+-- Valid format patterns are:
+--
+-- * For year: @YYYY@, e.g., @"0001"@, @"2018"@
+-- * For month: @MM@, e.g., @"01"@, @"12"@
+-- * For day: @DD@, e.g.,  @"01"@, @"31"@
+-- * For hours: @HH@, @HH24@ e.g., @"00"@, @"23"@ I.e., hours must be specified in 24 format
+-- * For minutes: @MI@, e.g., @"01"@, @"59"@
+-- * For seconds: @SS@, e.g., @"00"@, @"59"@
+--
+--  The function assumes that each 'RTimestamp' component in the input 'String' will be
+-- at the same exactly position as the format specifier
+-- Example of a typical format string is: @"DD\/MM\/YYYY HH:MI:SS@
+-- 
+-- If no valid format pattern is found then an 'UnsupportedTimeStampFormat' exception is thrown
+toRTimestamp ::
+    String      -- ^ Format string e.g., "DD\/MM\/YYYY HH:MI:SS"
     -> String   -- ^ Timestamp string
     -> RTimestamp
-createRTimeStamp fmt timeVal = 
+toRTimestamp fmt stime = 
+    -- if (Data.List.length fmt) /= (Data.List.length stime)
+    --     then throw $ RTimestampFormatLengthMismatch fmt stime
+    --     else
+    if fmt == [] || stime == []
+        then throw $ EmptyInputStringsInToRTimestamp fmt stime 
+        else 
+            let 
+                -- replace HH24 to HH
+                formatSpec = Data.String.Utils.replace "HH24" "HH" fmt
+                -- parse format string and get positions of key timestamp format fields in the format string
+                posmap = parseFormat formatSpec
+{-
+                -- length comparison of input strings
+                foundHH24 = posmap ! "HH24"
+                dummy =  
+                    if  ( (Data.List.length fmt /= Data.List.length stime) && (foundHH24 == Nothing) )
+                         ||
+                            --  add 2 for "24"
+                        ( (( (Data.List.length fmt) + 2) /= (Data.List.length stime)) && (foundHH24 /= Nothing) ) 
+                        then throw $ RTimestampFormatLengthMismatch fmt stime
+                        else "OK"
+                                                                          
+-}
+                -- year
+                posY = fromMaybe (-1) $ posmap ! "YYYY"
+                y = case posY of
+                    -1  ->  1 :: Int  
+                    _   ->      (abs $ (digitToInt $ (stime !! posY)) * 1000)
+                            +   (abs $ (digitToInt $ (stime !! (posY+1))) * 100) 
+                            +   (abs $ (digitToInt $ (stime !! (posY+2))) * 10)
+                            +   (abs $ digitToInt $ (stime !! (posY+3)))
+                -- round to 1 - 9999
+                year = case y `rem` 9999 of 
+                    0 -> 9999
+                    yv -> yv
+
+                -- month
+                posMO = fromMaybe (-1) $ posmap ! "MM"
+                mo = case posMO of
+                    -1  ->  1 :: Int  
+                    _   ->     (abs $ (digitToInt $ (stime !! posMO)) * 10)
+                            +  (abs $ digitToInt $ (stime !! (posMO+1))) 
+                -- round to 1 - 12 values 
+                month = case mo `rem` 12 of
+                            0  -> 12
+                            mv -> mv
+
+                -- day
+                posD = fromMaybe (-1) $ posmap ! "DD"
+                d = case posD of
+                    -1  ->  1 :: Int  
+                    _   ->     (abs $ (digitToInt $ (stime !! posD)) * 10)
+                            +  (abs $ digitToInt $ (stime !! (posD+1))) 
+                -- round to 1 - 31 values 
+                day = case d `rem` 31 of
+                            0  -> 31
+                            dv -> dv
+
+                -- hour
+                posH = fromMaybe (-1) $ posmap ! "HH"
+                h = case posH of
+                    -1  ->  0 :: Int  
+                    _   ->     (abs $ (digitToInt $ (stime !! posH)) * 10)
+                            +  (abs $ digitToInt $ (stime !! (posH+1)))
+                -- round to 0 - 23 values 
+                hour = h `rem` 24 
+
+                -- minutes
+                posMI = fromMaybe (-1) $ posmap ! "MI"  -- subtract 2 positions due to 24 in "HH24"
+                mi = case posMI of
+                    -1  ->  0 :: Int  
+                    _   ->     (abs $ (digitToInt $ (stime !! posMI)) * 10)
+                            +  (abs $ digitToInt $ (stime !! (posMI+1))) 
+                -- round to 0 - 59 values 
+                min = mi `rem` 60 
+
+                -- seconds
+                posS = fromMaybe (-1) $ posmap ! "SS"
+                s = case posS of
+                    -1  ->  0 :: Int  
+                    _   ->     (abs $ (digitToInt $ (stime !! posS)) * 10)
+                            +  (abs $ digitToInt $ (stime !! (posS+1))) 
+                -- round to 0 - 59 values 
+                sec = s `rem` 60 
+            in RTimestampVal {
+                                year = year
+                                ,month = month
+                                ,day = day
+                                ,hours24 = hour
+                                ,minutes = min
+                                ,seconds = sec
+                }
+    where
+        -- the map returns the position of the first character of the corresponding timestamp element
+        parseFormat :: String -> HashMap String (Maybe Int)
+        parseFormat fmt = 
+            let 
+                keywords = ["YYYY","MM", "DD", "HH", "MI", "SS"]
+                positions = Data.List.map (\subs -> instr subs fmt) keywords
+            in 
+                -- if no keyword found then trhow an exception
+                if Data.List.all (\t -> t == Nothing) $ positions
+                    then throw $ UnsupportedTimeStampFormat fmt
+                    else
+                        HM.fromList $ Data.List.zip keywords positions
+
+
+{-                                parseFormat :: String -> HashMap Char Int
+        parseFormat fmt = 
+            let
+                ymap = case elemIndices 'Y' s of
+                            y1 : y2 : y3 : y4 : [] -> HM.fromList [('Y1',y1),('Y2',y2),('Y3',y3),('Y4',y4)]
+                            y2 : y3 : y4 : [] -> HM.fromList [('Y2',y2),('Y3',y3),('Y4',y4)]
+                            y3 : y4 : [] -> HM.fromList [('Y3',y3),('Y4',y4)]
+                            y4 : [] -> HM.fromList [('Y4',y4)]
+                            [] -> HM.empty
+                            _  -> throw $ UnsupportedTimeStampFormat s
+
+                dmap = case elemIndices 'D' s of
+                            d1 : d2 : [] -> HM.fromList [('D1',d1),('D2',d2)]
+                            d2 : [] -> HM.fromList [('D2',d2)]
+                            [] -> HM.empty
+                            _  -> throw $ UnsupportedTimeStampFormat s                                
+
+                hmap = case elemIndices 'H' s of
+                            h1 : h2 : [] -> HM.fromList [('H1',h1),('H2',h2)]
+                            h2 : [] -> HM.fromList [('H2',h2)]
+                            [] -> HM.empty
+                            _  -> throw $ UnsupportedTimeStampFormat s                                
+
+                smap = case elemIndices 'S' s of
+                            s1 : s2 : [] -> HM.fromList [('S1',s1),('S2',s2)]
+                            s2 : [] -> HM.fromList [('S2',s2)]
+                            [] -> HM.empty
+                            _  -> throw $ UnsupportedTimeStampFormat s                                
+            in ymap `HM.union` dmap `HM.union` hmap `HM.union` smap  
+-}
+
+
+
+
+--rtimeStampToString
+
+
+
+-- | Search for the first occurence of a substring within a 'String' and return the 1st character position,
+-- or 'Nothing' if the substring is not found.
+---- See :  
+----          https://stackoverflow.com/questions/24349038/finding-the-position-of-some-substrings-in-a-string
+----          https://docs.oracle.com/cd/B28359_01/server.111/b28286/functions073.htm#SQLRF00651
+instr :: Eq a =>
+        [a] -- ^ substring to search for
+    ->  [a] -- ^ string to be searched
+    ->  Maybe Int    -- ^ Position within input string of substr 1st character 
+instr subs s = Data.List.findIndex (Data.List.isPrefixOf subs) $ Data.List.tails s
+
+-- | Search for the first occurence of a substring within a 'Text' string and return the 1st character position,
+-- or 'Nothing' if the substring is not found.
+---- See :  
+----          https://stackoverflow.com/questions/24349038/finding-the-position-of-some-substrings-in-a-string
+----          https://docs.oracle.com/cd/B28359_01/server.111/b28286/functions073.htm#SQLRF00651
+instrText :: 
+        Text -- ^ substring to search for
+    ->  Text -- ^ string to be searched
+    ->  Maybe Int    -- ^ Position within input string of substr 1st character 
+instrText subs s = instr (T.unpack subs) $ T.unpack s
+
+
+-- | Search for the first occurence of a substring within a 'RText' string and return the 1st character position,
+-- or 'Nothing' if the substring is not found, or if an non-text 'RDataType', is given as input.
+---- See :  
+----          https://stackoverflow.com/questions/24349038/finding-the-position-of-some-substrings-in-a-string
+----          https://docs.oracle.com/cd/B28359_01/server.111/b28286/functions073.htm#SQLRF00651
+instrRText :: 
+        RDataType -- ^ substring to search for
+    ->  RDataType -- ^ string to be searched
+    ->  Maybe Int    -- ^ Position within input string of substr 1st character 
+instrRText (RText subs) (RText s) = instrText subs s
+instrRText _ _ = Nothing 
+
+
+-- | Creates an RTimestamp data type from an input timestamp format string and a timestamp value represented as Text.
+createRTimestamp :: 
+    String      -- ^ Format string e.g., "DD\/MM\/YYYY HH24:MI:SS"
+    -> String   -- ^ Timestamp string
+    -> RTimestamp
+createRTimestamp fmt timeVal = -- toRTimestamp fmt timeVal
     case Prelude.map (Data.Char.toUpper) fmt of
         "DD/MM/YYYY HH24:MI:SS"     -> parseTime timeVal
         "\"DD/MM/YYYY HH24:MI:SS\"" -> parseTime timeVal
@@ -1178,13 +1389,14 @@ createRTimeStamp fmt timeVal =
 
         parseTime _ = RTimestampVal {year = 2999, month = 12, day = 31, hours24 = 11, minutes = 59, seconds = 59}
 
--- Convert from an RDate or RTimeStamp to a UTCTime
+
+-- Convert from an RDate or RTimestamp to a UTCTime
 {-
 toUTCTime :: RDataType -> Maybe UTCTime
 toUTCTime rdt = 
     case rdt of 
         RDate { rdate = dt, dtformat = fmt } ->
-        RTime { rtime = RTimeStamp {year = y, month = m, day = d, hours24 = hh, minutes = m } }
+        RTime { rtime = RTimestamp {year = y, month = m, day = d, hours24 = hh, minutes = m } }
 
 fromUTCTime :: UTCTime -> RDataType
 -}
@@ -1204,19 +1416,19 @@ isText :: RDataType -> Bool
 isText (RText t) = True
 isText _ = False
 
--- | Standard timestamp format
+-- | Standard timestamp format. For example: \"DD/MM/YYYY HH24:MI:SS\"
 stdTimestampFormat = "DD/MM/YYYY HH24:MI:SS"
 
 -- | rTimeStampToText: converts an RTimestamp value to RText
-rTimeStampToRText :: 
+rTimestampToRText :: 
     String  -- ^ Output format e.g., DD/MM/YYYY HH24:MI:SS
     -> RTimestamp -- ^ Input RTimestamp 
     -> RDataType  -- ^ Output RText
-rTimeStampToRText "DD/MM/YYYY HH24:MI:SS" ts =  let -- timeString = show (day ts) ++ "/" ++ show (month ts) ++ "/" ++ show (year ts) ++ " " ++ show (hours24 ts) ++ ":" ++ show (minutes ts) ++ ":" ++ show (seconds ts)
+rTimestampToRText "DD/MM/YYYY HH24:MI:SS" ts =  let -- timeString = show (day ts) ++ "/" ++ show (month ts) ++ "/" ++ show (year ts) ++ " " ++ show (hours24 ts) ++ ":" ++ show (minutes ts) ++ ":" ++ show (seconds ts)
                                                     timeString = expand (day ts) ++ "/" ++ expand (month ts) ++ "/" ++ expand (year ts) ++ " " ++ expand (hours24 ts) ++ ":" ++ expand (minutes ts) ++ ":" ++ expand (seconds ts)
                                                     expand i = if i < 10 then "0"++ (show i) else show i
                                                 in RText $ T.pack timeString
-rTimeStampToRText "YYYYMMDD-HH24.MI.SS" ts =    let -- timeString = show (year ts) ++ show (month ts) ++ show (day ts) ++ "-" ++ show (hours24 ts) ++ "." ++ show (minutes ts) ++ "." ++ show (seconds ts)
+rTimestampToRText "YYYYMMDD-HH24.MI.SS" ts =    let -- timeString = show (year ts) ++ show (month ts) ++ show (day ts) ++ "-" ++ show (hours24 ts) ++ "." ++ show (minutes ts) ++ "." ++ show (seconds ts)
                                                     timeString = expand (year ts) ++ expand (month ts) ++ expand (day ts) ++ "-" ++ expand (hours24 ts) ++ "." ++ expand (minutes ts) ++ "." ++ expand (seconds ts)
                                                     expand i = if i < 10 then "0"++ (show i) else show i
                                                     {-
@@ -1227,15 +1439,15 @@ rTimeStampToRText "YYYYMMDD-HH24.MI.SS" ts =    let -- timeString = show (year t
                                                     !dummy5 = trace ("expand (minutes ts) : " ++ expand (minutes ts)) True
                                                     !dummy6 = trace ("expand (seconds ts) : " ++ expand (seconds ts)) True-}
                                                 in RText $ T.pack timeString
-rTimeStampToRText "YYYYMMDD" ts =               let 
+rTimestampToRText "YYYYMMDD" ts =               let 
                                                     timeString = expand (year ts) ++ expand (month ts) ++ expand (day ts) 
                                                     expand i = if i < 10 then "0"++ (show i) else show i
                                                 in RText $ T.pack timeString
-rTimeStampToRText "YYYYMM" ts =                 let 
+rTimestampToRText "YYYYMM" ts =                 let 
                                                     timeString = expand (year ts) ++ expand (month ts) 
                                                     expand i = if i < 10 then "0"++ (show i) else show i
                                                 in RText $ T.pack timeString
-rTimeStampToRText "YYYY" ts =                   let 
+rTimestampToRText "YYYY" ts =                   let 
                                                     timeString = show $ year ts -- expand (year ts)
                                                     -- expand i = if i < 10 then "0"++ (show i) else show i
                                                 in RText $ T.pack timeString
@@ -3327,7 +3539,7 @@ rdataTypeToStringFmt fmt rdt =
                 RInt i -> printf fspec i
                 RText t -> printf fspec (unpack t)
                 RDate {rdate = d, dtformat = f} -> printf fspec (unpack d)
-                RTime t -> printf fspec $ unpack $ rtext (rTimeStampToRText "DD/MM/YYYY HH24:MI:SS" t)
+                RTime t -> printf fspec $ unpack $ rtext (rTimestampToRText "DD/MM/YYYY HH24:MI:SS" t)
                 -- Round to only two decimal digits after the decimal point
                 RDouble db -> printf fspec db -- show db
                 Null -> "NULL"           
@@ -3340,7 +3552,7 @@ rdataTypeToString rdt =
         RInt i -> show i
         RText t -> unpack t
         RDate {rdate = d, dtformat = f} -> unpack d
-        RTime t -> unpack $ rtext (rTimeStampToRText "DD/MM/YYYY HH24:MI:SS" t)
+        RTime t -> unpack $ rtext (rTimestampToRText "DD/MM/YYYY HH24:MI:SS" t)
         -- Round to only two decimal digits after the decimal point
         RDouble db -> printf "%.2f" db -- show db
         Null -> "NULL"
@@ -3396,5 +3608,18 @@ printRTable rtab = -- undefined
 
 -- | This exception is thrown whenever we try to access a specific column (i.e., 'ColumnName') of an 'RTuple' and the column does not exist.  
 data ColumnDoesNotExist = ColumnDoesNotExist ColumnName deriving(Eq,Show)
-
 instance Exception ColumnDoesNotExist
+
+-- | This exception is thrown whenever we provide a Timestamp format with not even  one valid format pattern
+data UnsupportedTimeStampFormat = UnsupportedTimeStampFormat String deriving(Eq,Show)
+instance Exception UnsupportedTimeStampFormat
+
+-- | Length mismatch between the format 'String' and the input 'String'
+-- data RTimestampFormatLengthMismatch = RTimestampFormatLengthMismatch String String deriving(Eq,Show)
+-- instance Exception RTimestampFormatLengthMismatch
+
+-- | One (or both) of the input 'String's to function 'toRTimestamp' are empty
+data EmptyInputStringsInToRTimestamp = EmptyInputStringsInToRTimestamp String String deriving(Eq,Show)
+instance Exception EmptyInputStringsInToRTimestamp
+
+
