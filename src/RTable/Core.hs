@@ -1420,8 +1420,16 @@ isText _ = False
 stdTimestampFormat = "DD/MM/YYYY HH24:MI:SS"
 
 -- | rTimeStampToText: converts an RTimestamp value to RText
+-- Valid input formats are:
+--
+-- * 1. @ "DD\/MM\/YYYY HH24:MI:SS" @
+-- * 2. @ \"YYYYMMDD-HH24.MI.SS\" @
+-- * 3. @ \"YYYYMMDD\" @
+-- * 4. @ \"YYYYMM\" @
+-- * 5. @ \"YYYY\" @
+--
 rTimestampToRText :: 
-    String  -- ^ Output format e.g., DD/MM/YYYY HH24:MI:SS
+    String  -- ^ Output format e.g., "DD\/MM\/YYYY HH24:MI:SS"
     -> RTimestamp -- ^ Input RTimestamp 
     -> RDataType  -- ^ Output RText
 rTimestampToRText "DD/MM/YYYY HH24:MI:SS" ts =  let -- timeString = show (day ts) ++ "/" ++ show (month ts) ++ "/" ++ show (year ts) ++ " " ++ show (hours24 ts) ++ ":" ++ show (minutes ts) ++ ":" ++ show (seconds ts)
@@ -1452,6 +1460,10 @@ rTimestampToRText "YYYY" ts =                   let
                                                     -- expand i = if i < 10 then "0"++ (show i) else show i
                                                 in RText $ T.pack timeString
 
+rTimestampToRText _ ts =                        let -- timeString = show (day ts) ++ "/" ++ show (month ts) ++ "/" ++ show (year ts) ++ " " ++ show (hours24 ts) ++ ":" ++ show (minutes ts) ++ ":" ++ show (seconds ts)
+                                                    timeString = expand (day ts) ++ "/" ++ expand (month ts) ++ "/" ++ expand (year ts) ++ " " ++ expand (hours24 ts) ++ ":" ++ expand (minutes ts) ++ ":" ++ expand (seconds ts)
+                                                    expand i = if i < 10 then "0"++ (show i) else show i
+                                                in RText $ T.pack timeString
 
 
 -- | Metadata for an RTable

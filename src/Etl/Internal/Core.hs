@@ -129,7 +129,8 @@ runCM = runColMapping
 
 -- | Apply an RColMapping to a source RTable and produce a new RTable.
 -- If a target-column has the same name with a source-column and a DontRemoveSrc (i.e., removeSrcCol == No) has been specified, then the (target-column, target-value) key-value pair,
--- overwrites the corresponding (source-column, source-value) key-value pair
+-- overwrites the corresponding (source-column, source-value) key-value pair.
+-- If a filter is embedded in the 'RColMapping', then the returned 'RTable' will include only the 'RTuple's that satisfy the filter predicate.
 runColMapping :: RColMapping -> RTable -> RTable
 runColMapping ColMapEmpty rtabS = rtabS
 runColMapping rmap rtabS = 

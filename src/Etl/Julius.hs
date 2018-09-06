@@ -565,6 +565,10 @@ data NamedMap = NamedResult NamedResultName ETLOpExpr
 -- Essentially with a Column Mapping we can create one or more new (derived) column(s) (/Target Columns/), based on an arbitrary transformation function ('ColXForm')
 -- with input parameters any of the existing columns (/Source Columns/).
 -- So a 'ColMappingExpr' is either empty, or it defines the source columns, the target columns and the transformation from source to target.
+-- Notes: 
+-- * If a target-column has the same name with a source-column and a 'DontRemoveSrc', or a 'RemoveSrc' has been specified, then the (target-column, target-value) key-value pair,
+-- overwrites the corresponding (source-column, source-value) key-value pair
+-- * The returned 'RTable' will include only the 'RTuple's that satisfy the filter predicate specified in the 'FilterBy' clause.
 data ColMappingExpr =  Source [ColumnName] ToColumn | ColMappingEmpty
 
 -- | Defines the Target Columns of a Column Mapping Expression ('ColMappingExpr') and the column transformation function ('ColXForm').
