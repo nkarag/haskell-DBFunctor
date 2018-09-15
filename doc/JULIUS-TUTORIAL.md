@@ -31,8 +31,9 @@
 	 3. [Evaluating a Julius Expression](#evaljul)
 	 4. [Writing ETL Code in Haskell and Julius EDSL](#etlcode)
  7. [Complex Queries as Julius Expressions](#cqaje)
-	 1. [Subqueries](#subqueries)
-	 2. [Naming Intermediate Results](#intresults)
+	 1. [Implementing a Monthly Running Total](#rtotal)
+	 2. [Subqueries](#subqueries)
+	 3. [Naming Intermediate Results](#intresults)
  8. [Output](#output)
 	 9. [Printing Results](#print)
 	 10. [Output Result to CSV file](#output) 
@@ -410,26 +411,31 @@ We can see the type of an Aggregate Function:
 type AggFunction = ColumnName -> RTable -> RDataType 
 ```
 An aggregate function receives as input a source column (i.e., a `ColumnName`) of a source `RTable` and returns an aggregated value, which is the result of the aggregation on the values of the source column.
-Here is an example of a custom aggregate function that implements the `string_agg` aggregate function (for Postrgresql fans) or `listagg` agg function for Oracle lovers.
+Here is an example of a custom aggregate function that implements the `string_agg` aggregate function (for Postrgresql fans) or `listagg` agg function for Oracle lovers ;-)
 ```Haskell
 main :: IO()
 main = do
-    putStrLn "#### TEST CUSTOM Aggregation ###"
+    putStrLn "### CUSTOM Aggregation Example ###"
     putStrLn "Implement a custom listagg()"
 
     rtabResult <- runJulius $
         EtlMapStart
         :-> (EtlR $
                 ROpStart
-                :.  (GroupBy ["Name", "MyTime"] 
-                        (AggOn [GenAgg "Name" (As "ListAggName") $ AggBy $ myListAgg (pack ";")]  $ 
-                        From $ Tab rtabNew)
-                        $ GroupOn (\t1 t2 ->  t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime")))
+                :.  (GroupBy ["Name"] 
+                        (AggOn [ Count "Name" $ As "CountName"
+                   			-- 1. Here we call our custom agg function: myListAgg
+		                        ,GenAgg "Name" (As "ListAggName") $ AggBy $ myListAgg (pack ";")]  $ 
+	                        From $ Tab myrtab) $
+                        GroupOn (\t1 t2 ->  t1!"Name" == t2!"Name"))
+             )
 
     printRTable rtabResult
     where
+    -- 2. Our custom listagg function. It must return an AggFunction data type
         myListAgg :: Text -> AggFunction
         myListAgg delimiter col rtab = 
+	        -- 3. Fold over the input RTable and calculate aggregated value
             rdatatypeFoldr' ( \rtup accValue -> 
                 if isNotNull (rtup <!> col)  && (isNotNull accValue)
                     then
@@ -453,26 +459,27 @@ main = do
 ```
 an here is the output:
 ```
-#### TEST CUSTOM Aggregation ###
+### CUSTOM Aggregation Example ###
 Implement a custom listagg()
---------------------------------------------------------------------------
-ListAggName                     MyTime                  Name              
-~~~~~~~~~~~                     ~~~~~~                  ~~~~              
-Karagiannidis;Karagiannidis     01/01/2090 23:15:45     Karagiannidis     
-Nikos;Nikos                     31/05/2018 15:01:34     Nikos             
-nkarag                          01/12/1992 15:21:04     nkarag            
-Θεοδώρου                        02/03/1975 15:01:34     Θεοδώρου          
-Χ                               31/05/2018 15:01:34     Χ                 
-NULL                            01/01/2090 23:15:45     NULL              
-Π                               31/05/2018 15:01:34     Π                 
-nkarag                          01/12/1993 05:01:04     nkarag            
-nkarag;nkarag                   01/12/1990 05:01:04     nkarag            
-Karagiannidis;Karagiannidis     01/01/2090 23:15:46     Karagiannidis     
+--------------------------------------------------------------------------------------------
+ListAggName                                                 CountName     Name
+~~~~~~~~~~~                                                 ~~~~~~~~~     ~~~~
+Karagiannidis;Karagiannidis;Karagiannidis;Karagiannidis     4             Karagiannidis
+nkarag;nkarag;nkarag;nkarag                                 4             nkarag
+Π                                                           1             Π
+NULL                                                        NULL          NULL
+Χ                                                           1             Χ
+Θεοδώρου                                                    1             Θεοδώρου
+Nikos;Nikos                                                 2             Nikos
 
-
-10 rows returned
---------------------------------------------------------------------------
+7 rows returned
+--------------------------------------------------------------------------------------------
 ```
+In this example we have implemented a custom listagg /string_agg function. I.e., an aggregate function over the string values of a specific column. Essentially the function concatenates the string values of each group, separating them with a delimiter string  that we provide as input to the listagg function. 
+From the output above, we can clearly see that we have grouped the input table by the "Name" column and have listagg-ed the same column. Also we have provided a count of the members of each group.
+- Comment line 1.:  At this line,we call our custom aggregate function `myListAgg` using the `GenAgg` Julius clause.
+-  Comment line 2.: Here we define our custom aggregate function. 
+-  Comment line 3.:  Note the use of the `rdatatypeFoldr'` function of the RTable.Core module of the DBFunctor package. This is a fold over an input RTable that returns a single (RDataType) value. In our case this is the "string aggregated value".
 <a  name="grouping"></a> 
 #### GROUPING (GROUP BY)
 **Meaning**:  The Grouping operation groups together RTuples based on a grouping predicate and than applies an aggregation operation (the same one) on each group separately. The aggregation operation, as we have seen from the previous paragraph, can include on or more aggregations on the input columns. The grouping predicate is an arbitrary function between two RTuples of the input RTables that returns True, only when the input RTuples should belong in the same group. The result is the set of aggregated RTuples (one RTuple corresponding to each group) consisting of the grouping columns as well as the aggregate-result columns.
@@ -998,9 +1005,11 @@ main = do
 ```
 <a name="cqaje"></a>
 ## Complex Queries as Julius Expressions
+<a name="rtotal"></a>
+### Implementing a Monthly Running Total
 <a name="subqueries"></a>
 ### Subqueries
-example : running total
+
 <a name="intresults"></a>
 ### Naming Intermediate Results
 subquery factoring (WITH clause)

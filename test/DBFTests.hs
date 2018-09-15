@@ -880,7 +880,7 @@ main = do
             EtlMapStart
             :-> (EtlR $
                     ROpStart
-                    :.  (GroupBy ["Name", "MyTime"] 
+                    :.  (GroupBy ["Name"] -- , "MyTime"] 
                             (AggOn [    {-Sum "Number" $ As "SumNumber"
                                         ,Count "Name" $ As "CountName"
                                         --,Avg "Number" $ As "AvgNumber" 
@@ -889,9 +889,11 @@ main = do
                                         ,Max "DNumber" $ As "maxDNumber"
                                         --,Max "Number" $ As "maxNumber"
                                         ,Max "Name" $ As "maxName"
-                                        ,-}GenAgg "Name" (As "ListAggName") $ AggBy $ myListAgg (pack ";")
+                                        ,-}
+                                        Count "Name" $ As "CountName"
+                                        ,GenAgg "Name" (As "ListAggName") $ AggBy $ myListAgg (pack ";")
                                     ]  $ From $ Tab rtabNew)
-                            $ GroupOn (\t1 t2 ->  t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime"))
+                            $ GroupOn (\t1 t2 ->  t1!"Name" == t2!"Name" )) -- && t1!"MyTime" == t2!"MyTime"))
                 )
 
     T.printRTable rtabNew18

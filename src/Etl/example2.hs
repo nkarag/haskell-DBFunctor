@@ -8,7 +8,7 @@
 
 
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
+-- {-# LANGUAGE BangPatterns #-}
 
 import Etl.Julius
 import Data.Text 	(pack)
@@ -18,7 +18,7 @@ myetl [src] =
 	let
 		-- tab1 = create new rtable with additional column "AccumAmount" initialized with 0.0 and ordered by month
 		tab1 = juliusToRTable $ jul1 src
-		-- tab2 = fold over src and at each iteration find current max and update accumulator rtab - start with tab1 as accumulator tab
+		-- tab2 = find sum from starting RTuple till current RTuple (i.e., window that our agg function is applied) - start with tab1 as accumulator tab
 		trg = juliusToRTable $ jul2 tab1
 	in [trg]
 	where
