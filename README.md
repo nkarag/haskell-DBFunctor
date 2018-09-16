@@ -264,7 +264,33 @@ In this more comprehensive example, we will show how we can create a simple Star
 ](https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/ETL-EXAMPLE.md).
 ### Julius Tutorial (in progress)
 https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md
+<a  name="howtorun"></a> 
 ### How to run
-Download or clone DBFunctor in a new directory, then run `stack build`
-with the [stack](https://docs.haskellstack.org/en/stable/README/) tool.
-In order, to use it in you own haskell app, include it in your stack.yaml file, as a local package that you want to link your code to. (Soon DBFunctor will be added to Hackage and you will not need to use it as a local package.)
+Download or clone DBFunctor in a new directory, 
+```
+$ git clone https://github.com/nkarag/haskell-DBFunctor
+$ cd haskell-DBFunctor/
+```
+then run 
+```
+$ stack build --haddock
+```
+in order to build the code and generate the documentation with the [stack](https://docs.haskellstack.org/en/stable/README/) tool.
+In order, to use it in you own haskell app, you only need to import the Julius module (you dont have to import RTable.Core, because it is exported by Julius)
+```Haskell
+import Etl.Julius
+```
+Finally, for a successful build of your app, you must direct stack to treat it as a local package (Soon DBFunctor will be added to Hackage and you will not need to use it as a local package.). 
+So you have to include it in your stack.yaml file, as a local package that you want to link your code to. 
+```
+packages:
+- location: .
+- location: <path where DBFunctor package has been cloned>
+  extra-dep: true
+```
+And of course, you must not forget to add the dependency of your app to the DBFunctor package in your .cabal file
+```
+  build-depends:      ...
+                      , DBFunctor
+
+```

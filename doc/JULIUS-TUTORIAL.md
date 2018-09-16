@@ -3,9 +3,11 @@
 # A Tutorial
 ## Table Of Contents
  1. [Introduction](#introduction)
- 2.  [Julius Basic Syntax: The Julius Expression. ](#syntax)
- 3. [Julius DDL: Creating an RTable from a CSV file](#ddl)
- 4. [Working with Relational Algebra Operations](#ralgebra)
+ 2. [How to run](#htr)
+ 3.  [Julius Basic Syntax: The Julius Expression. ](#syntax)
+	 1. [A tip for working with Julius Syntax](#tip)
+ 4. [Julius DDL: Creating an RTable from a CSV file](#ddl)
+ 5. [Working with Relational Algebra Operations](#ralgebra)
 	 1. [Relational Algebra Expressions](#rae)
 	 2. [Relational Algebra Operations](##rao)
 		 1. [Selection](#selection)
@@ -18,23 +20,23 @@
 		 6. [Grouping](#grouping)
 		 7. [Aggregation & Grouping on a Derived Column](#agdc)
 		 8. [Set Operations](#so)
- 5. [Beyond Relational Algebra](#bra)
+ 6. [Beyond Relational Algebra](#bra)
 	 1. [Ordering](#ordering)
 	 2. [Generic RTable Operations as Functions](#roaf)
 		 1. [Add a surrogate key column and assign values to it](#askc)
 		 2. [Append a delta RTable to a target RTable](#adr)
 		 3. [Doing a Group By with no aggregation](#dgb) 
 
- 6. [ETL in Haskell and Julius EDSL](#eih)
+ 7. [ETL in Haskell and Julius EDSL](#eih)
 	 1.  [Column Transformations: The Column Mapping Clause](#colmap)
 	 2. [Julius Expressions and the Ubiquitous ETL Mapping ](#etlm)
 	 3. [Evaluating a Julius Expression](#evaljul)
 	 4. [Writing ETL Code in Haskell and Julius EDSL](#etlcode)
- 7. [Complex Queries as Julius Expressions](#cqaje)
+ 8. [Complex Queries as Julius Expressions](#cqaje)
 	 1. [Implementing a Monthly Running Total](#rtotal)
 	 2. [Subqueries](#subqueries)
 	 3. [Naming Intermediate Results](#intresults)
- 8. [Output](#output)
+ 9. [Output](#output)
 	 9. [Printing Results](#print)
 	 10. [Output Result to CSV file](#output) 
 
@@ -44,6 +46,9 @@ __Julius__ is a type-level *Embedded Domain Specific Language (EDSL)* for ETL da
 It is an "embedded" DSL because it "lives" within Haskell code and is compiled with GHC as usual. It is not a different language requiring some special compiler/interpreter to work. 
 In fact, a *Julius Expression* is just a common Haskell data type. The whole syntax of the Julius language consists of nothing more than a series of Haskell data type definitions. These data types simply comprise the Julius language. A syntax error in the Julius language is just a data type construction error that can be caught by the compiler.
 In this tutorial, we will show the basics of Julius in order to help someone to get started. (See also the documentation of the **Etl.Julius** and **RTable.Core** **modules** of the **DBFunctor package** for more details on the data types and functions exposed). 
+<a  name="htr"></a>
+## How to run
+See [this](https://github.com/nkarag/haskell-DBFunctor/blob/master/README.md#howtorun).
 <a  name="syntax"></a> 
 ## Julius Basic Syntax: The Julius Expression  
 A *Julius Expression* is a sequence of individual *ETL Operations* connected with the `:->` constructor. Each such operation acts on one (Unary), or two (Binary) input `RTable`(s) and produces a new (immutable) `RTable`. 
@@ -60,6 +65,10 @@ EtlMapStart :-> (EtlX $ ...) :-> (EtlX $ ...) :-> ... (EtlX $ ...)
 ```
 where 'X' in "EtlX" is  'C' ,or 'R'.
 We will comeback to Julius expressions in more detail, but first lets see how can we create an RTable.
+<a  name="tip"></a>
+### A tip for working with Julius Syntax
+The easiest way to work with the Julius DSL syntax, when writing code, is to have the haddock documentation of the Etl.Julius beside, in a browser window, and use it, in order to navigate back and forth between the several Julius clauses.
+The path that the haddock documentation resides can be found by issuing a `stack haddock` command in  the DBFunctor project directory. 
 <a  name="ddl"></a> 
 ## Julius DDL: Creating an RTable from a CSV file
 In order to create an RTable from your data (i.e., load your data into memory into the RTable data structure), you only need to call function `toRTable`:
