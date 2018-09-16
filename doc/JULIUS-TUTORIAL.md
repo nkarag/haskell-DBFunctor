@@ -457,20 +457,45 @@ main = do
                             rtab
 
 ```
-an here is the output:
+Here is the input RTable upon which our listagg aggregation will be applied:
+```
+------------------
+Name              
+~~~~              
+Karagiannidis     
+nkarag            
+nkarag            
+Nikos             
+Θεοδώρου          
+Karagiannidis     
+Karagiannidis     
+nkarag            
+NULL              
+Karagiannidis     
+Nikos             
+Π                 
+Χ                 
+nkarag            
+
+
+14 rows returned
+------------------
+```
+and here is the output:
 ```
 ### CUSTOM Aggregation Example ###
 Implement a custom listagg()
 --------------------------------------------------------------------------------------------
-ListAggName                                                 CountName     Name
-~~~~~~~~~~~                                                 ~~~~~~~~~     ~~~~
-Karagiannidis;Karagiannidis;Karagiannidis;Karagiannidis     4             Karagiannidis
-nkarag;nkarag;nkarag;nkarag                                 4             nkarag
-Π                                                           1             Π
-NULL                                                        NULL          NULL
-Χ                                                           1             Χ
-Θεοδώρου                                                    1             Θεοδώρου
-Nikos;Nikos                                                 2             Nikos
+Name              ListAggName                                                 CountName     
+~~~~              ~~~~~~~~~~~                                                 ~~~~~~~~~     
+Karagiannidis     Karagiannidis;Karagiannidis;Karagiannidis;Karagiannidis     4             
+nkarag            nkarag;nkarag;nkarag;nkarag                                 4             
+Π                 Π                                                           1             
+NULL              NULL                                                        NULL          
+Χ                 Χ                                                           1             
+Θεοδώρου          Θεοδώρου                                                    1             
+Nikos             Nikos;Nikos                                                 2             
+
 
 7 rows returned
 --------------------------------------------------------------------------------------------

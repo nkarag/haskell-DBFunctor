@@ -876,6 +876,13 @@ main = do
     putStrLn "#### TEST CUSTOM Aggregation ###"
     putStrLn "Implement a custom listagg()"
 
+    printRTable $ juliusToRTable $
+        EtlMapStart
+        :-> (EtlR $
+                ROpStart
+                :. (Select ["Name"] (From $ Tab rtabNew))
+            )
+
     rtabNew18 <- runJulius $
             EtlMapStart
             :-> (EtlR $
@@ -896,7 +903,9 @@ main = do
                             $ GroupOn (\t1 t2 ->  t1!"Name" == t2!"Name" )) -- && t1!"MyTime" == t2!"MyTime"))
                 )
 
-    T.printRTable rtabNew18
+    -- T.printRTable rtabNew18
+    T.printfRTable (genRTupleFormat [ "Name", "ListAggName", "CountName"] genDefaultColFormatMap) $ rtabNew18
+
 
     where
         myListAgg :: Text -> AggFunction
