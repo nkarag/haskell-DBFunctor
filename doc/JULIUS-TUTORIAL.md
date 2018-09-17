@@ -1039,8 +1039,137 @@ main = do
 ```
 <a name="cqaje"></a>
 ## Complex Queries as Julius Expressions
+In the following paragraphs, we will discuss some more advanced use-cases of the Julius EDSL. We will begin with an example of a monthly running total, that would require some more advanced SQL to be calculated and then proceed to show how we can define subqueries in Julius, as well as "named subqueries" that can be referenced through out our Julius expression, or even in a separate expression. 
 <a name="rtotal"></a>
 ### Implementing a Monthly Running Total
+What we want to achieve is quite simple: 
+Assume we have a table that includes monthly totals. Lets say something like this:
+```
+----------------------
+Amount     Month
+~~~~~~     ~~~~~
+50.00      201801
+55.50      201802
+61.00      201803
+66.50      201804
+72.00      201805
+77.50      201806
+83.00      201807
+88.50      201808
+94.00      201809
+99.50      201810
+105.00     201811
+110.50     201812
+
+
+12 rows returned
+----------------------
+```
+With this RTable as input, we want to calculate a monthly running total, i.e., an accumulating amount per month. So we want this:
+```
+--------------------------------------
+Amount     AccumAmount     Month
+~~~~~~     ~~~~~~~~~~~     ~~~~~
+50.00      50.00           201801
+55.50      105.50          201802
+61.00      166.50          201803
+66.50      233.00          201804
+72.00      305.00          201805
+77.50      382.50          201806
+83.00      465.50          201807
+88.50      554.00          201808
+94.00      648.00          201809
+99.50      747.50          201810
+105.00     852.50          201811
+110.50     963.00          201812
+
+
+12 rows returned
+--------------------------------------
+```
+How can we do this with Julius?
+
+First of all, one must be able to calculate it with SQL. With SQL we have two options: a) to use analytic functions and b) not to use analytic functions. With option A, the calculation is ridiculously simple. With option B one has to do a self-join (i.e., join the input RTable to a second incarnation of itself), in order to calculate the result, i.e., it is quite more complex. Next, we will show you how simple it is to do it with an analytic function and leave the non-analytic-function option as an exercise to the interested reader :) 
+```sql
+SELECT	"Amount"
+		,sum("Amount") over (order by "Month") "AccumAmount", 
+		"Month"
+FROM src
+```
+Now we will proceed to show you how to do it with Julius. In fact, as you will see, we have implemented this with the same "logic" as how an analytic function work. This is how the analytic function above, would process this calculation:
+1. Analytic functions are performed on a result set after all join, `WHERE`, `GROUP BY` and `HAVING` clauses are complete, but before the final `ORDER BY` operation is performed. In our case we have no such operations, so we can apply our analytic function directly on the `src` table
+2. Analytic functions are applied per partition defined in the `PARTITION BY` clause, but since we don't have such a clause in our example, we can treat the whole table as a single partition over which the analytic function will be applied. 
+3. Next we order our partition based on the `order by` clause, i.e., ascending by month. This will be the *Window* of rows over which, we will apply our aggregate function, namely `sum`.
+4. We iterate through our Window of sorted rows and at each iteration we sum all the rows in the range: `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, meaning summing all rows from the beginning of the Window till the current row (included). Thus at each iteration we get an accumulated total, our monthly running total.
+
+Here is the etl function that accepts as input the source RTable, with the monthly totals and returns the target RTable with the monthly running totals.
+```haskell
+myetl :: [RTable] -> [RTable]
+myetl [src] = 
+	let
+		-- tab1 = create new rtable with additional column "AccumAmount" 
+		-- initialized with 0.0 and ordered by month
+		tab1 = juliusToRTable $ jul1 src
+		-- tab2 = find sum from starting RTuple till current RTuple 
+		-- (i.e., window that our agg function is applied).
+		-- Start with tab1 as accumulator tab
+		trg = juliusToRTable $ jul2 tab1
+	in [trg]
+	where
+		jul1 s =	EtlMapStart
+					:-> (EtlC $
+							Source [] $
+							Target ["AccumAmount"] $
+							By (\_ -> [RDouble 0.0]) (On $ Tab s) DontRemoveSrc $
+							FilterBy (\_ -> True)
+						) 
+					:-> (EtlR $
+							ROpStart
+							:.(OrderBy [("Month", Asc)] $ 
+								From Previous 
+							)
+						)
+		jul2 initTab = 	EtlMapStart
+						:-> (EtlR $
+								ROpStart
+								-- :.(GenUnaryOp (On $ Tab src) $
+								:.(GenUnaryOp (On $ Tab initTab) $
+									ByUnaryOp $ rtabFoldl' accumFunc initTab 
+								)
+								:.(OrderBy [("Month", Asc)] $
+									From Previous
+								)
+							)
+		accumFunc =	\accTab rtup ->
+			let
+				-- find sum from starting RTuple till current RTuple (i.e., window that our agg function is applied)
+				runningSum = (headRTup $ currAggTab) <!> "RunningSum"
+				currAggTab = juliusToRTable $
+								EtlMapStart 
+								:-> (EtlR $
+										ROpStart
+										-- filter rtuples to get current window of rtuples that sum will be applied
+										:.	(Filter (From $ Tab accTab) $
+												FilterBy (\t -> t <!> "Month" <= rtup <!> "Month")
+										)
+										-- apply sum on window of rtuples
+										:.	(Agg $
+												AggOn [Sum "Amount" $ As "RunningSum"] $ From Previous
+										)
+									)
+			in updateRTab	[("AccumAmount", runningSum)] -- update specific month RTuple with accumulated amount
+							(\t -> t <!> "Month" == rtup <!> "Month")
+							accTab
+
+```
+For clearness, we have split our logic into two separate Julius expressions: `jul1` and `jul2`.
+`jul1` receives as input the source RTable and returns a new RTable, which is exactly the same as the source but with one additional column ("AccumAmount") initialized to a default value 0.0 and with the RTuples sorted by "Month" in ascending order. This corresponds logically to steps 1 to 3 from above.
+`jul2` receives as input the output from `jul1` and performs the iteration that we have described in step 4 above, with a use of the folding function, `rtabFoldl'`, which is available in the RTable.Core module of the DBFunctor package (and it is exposed also from the Etl.Julius module). 
+Essentially we define an accumulating function `accumFunc`, which iterates through the sorted set of RTuples and in each iteration calculates the running total and updates (`updateRTab`) the input RTable (i.e., the accumulator of the fold). This of course creates a new RTable due to immutability. At the final iteration, we have the update for the last month and we get our result.
+
+Note that the folding operation has been smoothly incorporated in the `jul2` Julius expression as a generic unary operation (`GenUnaryOp` clause).
+
+The main message here is that with a simple fold and the generic unary operation mechanism, we have implemented something which is quite complex and in SQL is hidden behind analytic functions. So you see how powerful Julius + Haskell  can get!
 <a name="subqueries"></a>
 ### Subqueries
 
