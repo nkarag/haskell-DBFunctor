@@ -1163,8 +1163,11 @@ myetl [src] =
 
 ```
 For clearness, we have split our logic into two separate Julius expressions: `jul1` and `jul2`.
-`jul1` receives as input the source RTable and returns a new RTable, which is exactly the same as the source but with one additional column ("AccumAmount") initialized to a default value 0.0 and with the RTuples sorted by "Month" in ascending order. This corresponds logically to steps 1 to 3 from above.
+
+`jul1` receives as input the source RTable and returns a new RTable, which is exactly the same as the source but with one additional column ("AccumAmount") initialized to a default value 0.0 and with the RTuples sorted by "Month" in ascending order. This corresponds logically to steps 1 to 3 from above. The new column is added with a column mapping, which is followed by an order by operation.
+
 `jul2` receives as input the output from `jul1` and performs the iteration that we have described in step 4 above, with a use of the folding function, `rtabFoldl'`, which is available in the RTable.Core module of the DBFunctor package (and it is exposed also from the Etl.Julius module). 
+
 Essentially we define an accumulating function `accumFunc`, which iterates through the sorted set of RTuples and in each iteration calculates the running total and updates (`updateRTab`) the input RTable (i.e., the accumulator of the fold). This of course creates a new RTable due to immutability. At the final iteration, we have the update for the last month and we get our result.
 
 Note that the folding operation has been smoothly incorporated in the `jul2` Julius expression as a generic unary operation (`GenUnaryOp` clause).
