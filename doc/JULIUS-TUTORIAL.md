@@ -1096,7 +1096,7 @@ SELECT	"Amount"
 		"Month"
 FROM src
 ```
-Now we will proceed to show you how to do it with Julius. In fact, as you will see, we have implemented this with the same "logic" as how an analytic function work. This is how the analytic function above, would process this calculation:
+Now we will proceed to show you how to do it with Julius. In fact, as you will see, we have implemented this with the same "logic" as how analytic functions work. This is how the analytic function above, would process this calculation:
 1. Analytic functions are performed on a result set after all join, `WHERE`, `GROUP BY` and `HAVING` clauses are complete, but before the final `ORDER BY` operation is performed. In our case we have no such operations, so we can apply our analytic function directly on the `src` table
 2. Analytic functions are applied per partition defined in the `PARTITION BY` clause, but since we don't have such a clause in our example, we can treat the whole table as a single partition over which the analytic function will be applied. 
 3. Next we order our partition based on the `order by` clause, i.e., ascending by month. This will be the *Window* of rows over which, we will apply our aggregate function, namely `sum`.
@@ -1166,13 +1166,13 @@ For clearness, we have split our logic into two separate Julius expressions: `ju
 
 `jul1` receives as input the source RTable and returns a new RTable, which is exactly the same as the source but with one additional column ("AccumAmount") initialized to a default value 0.0 and with the RTuples sorted by "Month" in ascending order. This corresponds logically to steps 1 to 3 from above. The new column is added with a column mapping, which is followed by an order by operation.
 
-`jul2` receives as input the output from `jul1` and performs the iteration that we have described in step 4 above, with a use of the folding function, `rtabFoldl'`, which is available in the RTable.Core module of the DBFunctor package (and it is exposed also from the Etl.Julius module). 
+`jul2` receives as input the output from `jul1` and performs the iteration that we have described in step 4 above, with the use of the folding function, `rtabFoldl'`, which is available in the RTable.Core module of the DBFunctor package (which is exposed also from the Etl.Julius module). 
 
-Essentially we define an accumulating function `accumFunc`, which iterates through the sorted set of RTuples and in each iteration calculates the running total and updates (`updateRTab`) the input RTable (i.e., the accumulator of the fold). This of course creates a new RTable due to immutability. At the final iteration, we have the update for the last month and we get our result.
+Essentially we define an accumulating function `accumFunc`, which iterates through the sorted set of RTuples and in each iteration calculates the running total and then updates (`updateRTab`) the input RTable (i.e., the accumulator RTable of the fold). This of course creates a new RTable due to immutability. At the final iteration, we have the update for the last month and we get our result.
 
 Note that the folding operation has been smoothly incorporated in the `jul2` Julius expression as a generic unary operation (`GenUnaryOp` clause).
 
-The main message here is that with a simple fold and the generic unary operation mechanism, we have implemented something which is quite complex and in SQL is hidden behind analytic functions. So you see how powerful Julius + Haskell  can get!
+The main message here is that with a simple fold and the generic unary operation mechanism, we have implemented something which is quite complex. This complexity in SQL is hidden in the implementation of analytic functions, but with functional programming the implementation boils down to a simple fold. So you see how powerful Julius + Haskell  can get and enable you to easily implement any calculation you might need.
 <a name="subqueries"></a>
 ### Subqueries
 
