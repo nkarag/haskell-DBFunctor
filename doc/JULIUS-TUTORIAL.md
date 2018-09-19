@@ -1191,7 +1191,21 @@ In addition, we have seen that for any RTable there can be defined a Julius expr
 ```haskell
 juliusToRTable :: ETLMappingExpr -> RTable
 ```
-Therefore, the Julius expressions that appear in `FromRTable`, or `OnRTable` clause are the subqueries in the Julius language.
+Therefore, the Julius expressions that appear in a `FromRTable`, or `OnRTable` clause are the subqueries in the Julius language. Here is very simple example, where the `myJulExpr`  expression is applied on another julius expression (i.e., a subquery)  named `subqExpr`
+```haskell
+myJulExpr  =  
+	EtlMapStart  
+	:->  (EtlR  $  
+			ROpStart  
+			:.  (Filter  (From  $  Tab  $ juliusToRTable subqExpr)  $  
+					FilterBy  (\t  ->  <some predicate>  )
+		 )
+subqExpr = 
+	EtlMapStart  
+	:->  (<some operation>)
+	...
+	:-> (<some operation>)
+```
 
 <a name="intresults"></a>
 ### Naming Intermediate Results
