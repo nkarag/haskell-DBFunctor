@@ -51,11 +51,11 @@ In this tutorial, we will show the basics of Julius in order to help someone to 
 See [this](https://github.com/nkarag/haskell-DBFunctor/blob/master/README.md#howtorun).
 <a  name="syntax"></a> 
 ## Julius Basic Syntax: The Julius Expression  
-A *Julius Expression* is a sequence of individual *ETL Operations* connected with the `:->` constructor. Each such operation acts on one (Unary), or two (Binary) input `RTable`(s) and produces a new (immutable) `RTable`. 
+A *Julius Expression* is a sequence (i.e., a chain)  of individual *ETL Operations* connected with the `:->` constructor. Each such operation acts on one (Unary), or two (Binary) input `RTable`(s) and produces a new (immutable) `RTable`. 
 So, *a Julius Expression is a means to define an arbitrary complex data transformation over RTables, consisting of an arbitrary number of processing steps (aka ETL Operations) . *
 In its most basic form a Julius expression looks like this:
 
-    EtlMapStart :-> <etl operation> :-> ... <etl operation>
+    EtlMapStart :-> <etl operation> :-> ... :-> <etl operation>
 
 The `:->` connector is left associative because a Julius expression is evaluated from left to right (or from top to bottom). Essentially `:->` is a data constructor of the `ETLMappingExpr` data type , which receives two input parameters (check out the documentation of the Etl.Julius module in the DBFunctor package in Hackage - just google "Hackage Etl.Julius").
 An "etl operation" can be either a *Relational Algebra Expression*, or a *Column Mapping* (i.e,. a column-level transformation). A Relational Algebra is a sequence of relational algebra operations acting on some input RTable(s). A Column Mapping is a transformation a the column-level where one or more new columns are created based on ore or more existing ones.We explain both concepts in the following paragraphs. 
@@ -1209,7 +1209,36 @@ subqExpr =
 
 <a name="intresults"></a>
 ### Naming Intermediate Results
-subquery factoring (WITH clause)
+As we have seen, a Julius expression is a chain of ETL operations (where each operation is either a relational operation or a column mapping). Each operation accepts as input one or two RTables  (normally the result from the previous operation) and returns a new RTable. So every operation in a Julius expression is an *intermediate result*.
+What if we want to refer (i.e., use as input) to one of these intermediate results in a later operation within the same Julius expression? This is possible, because we can provide a name to each such intermediate result and then access it directly with function `takeNamedResult` of the Etl.Julius module.
+```haskell
+takeNamedResult :: NamedResultName	-> ETLMappingExpr -> ETLMappingExpr	
+```
+The "SQL equivalent" to this is the so-called `WITH` clause, or *subquery factoring* clause, which is part of the SQL-99 standard. With this clause we can provide a name to each such intermediate result (subquery) and access it in a `FROM` clause as if it was a regular table. This can be used in order to reduce repetition and simplify complex SQL statements.
+Lets start with the syntax of a Julius expression with named results:
+```
+EtlMapStart :=> NamedResult "Result1" <etl operation 1> :=> ... :=> NamedResult "ResultN" <etl operation N>
+```
+So you see, instead of the `:->` data constructor, now we use the `:=>` constructor accompanied with the `NamedResult` constructor that accepts as parameters a name for the result of the operation and the operation itself.
+In order, to access (i.e., reference) a named result, we have to use the `takeNamedResult` function that we have mentioned above.  This function's logic is quite similar to the `take` function that we use in lists in order to access an n-length prefix of the list but instead of providing the length of a sublist, we give the name of the operation/result that we want to access. Lets see an example:
+```haskell
+etlXpression = 
+   EtlMapStart
+   :-> (EtlC $ ...)  
+   -- "myResult" is a named operation 
+   :=> NamedResult "myResult" (EtlR $ ...) 
+   :-> (EtlR $ ... )
+   :-> (EtlR $
+		   ROpStart
+		   :.  (Minus 
+				   (TabL $ 
+				   --  THIS IS THE POINT WHERE WE USE THE NAMED RESULT!
+					   juliusToRTable $ takeNamedResult "myResult" etlXpression    
+				   ) 
+				   (Previous))
+	   )
+```
+You can see that "myResult" is the name of the intermediate result up to and including the operation at this point. Later on, within some other operation, we refer to "myResult", which plays the role of the left operand in Minus operation.
 <a name="output"></a>
 ## Output
 <a name="print"></a>
