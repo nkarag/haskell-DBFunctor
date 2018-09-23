@@ -1243,8 +1243,54 @@ You can see that "myResult" is the name of the intermediate result up to and inc
 ## Output
 <a name="print"></a>
 ### Printing Results
-#### Default Formatted Printing
+Printing the contents of an RTable on screen, in a user-friendly manner, is of course very important. To this end, the RTable.Core module of the DBFunctor package (which is also exported from the Etl.Julius module) includes the "printRTable" family of functions. These provide basically the following capabilities:
+
+ - Printing with no column value formatting options
+ - Formatted printing "a la printf"
+ - Safe printing (formatted or not) in the presence of exceptions
+
+These are the topics of the next paragraphs. 
+#### Simple Printing
+The most simple method for printing an RTable on screen is the `printRTable` function:
+```haskell
+printRTable :: RTable -> IO ()
+```
+You just give as input an RTable and you get it printed on screen. So simple.
+
+For example, here is the output from our [montlhy running total](#rtotal) example:
+```
+--------------------------------------
+Amount     AccumAmount     Month
+~~~~~~     ~~~~~~~~~~~     ~~~~~
+50.00      50.00           201801
+55.50      105.50          201802
+61.00      166.50          201803
+66.50      233.00          201804
+72.00      305.00          201805
+77.50      382.50          201806
+83.00      465.50          201807
+88.50      554.00          201808
+94.00      648.00          201809
+99.50      747.50          201810
+105.00     852.50          201811
+110.50     963.00          201812
+
+12 rows returned
+--------------------------------------
+```
+We have printed the result on screen with the use of the `printRTable` function, like this:
+```haskell
+main :: IO()
+main = do 
+	-- run etl
+	[trg] <- runETL myetl [src]
+	-- print target
+	printRTable trg
+```
+Please note that this function does not give you the option to modify how the values of each column will appear (i.e., the formatting). Also with this function you cannot define the column order on screen (i.e., which column is printed first, which second , etc.). It is plain vanilla printing.
 #### Formatted Printing
+Enter the world of formatted printing! 
+#### Safe Printing
 <a name="output"></a>
 ### Output Result to CSV file
 
