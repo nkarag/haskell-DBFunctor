@@ -37,8 +37,8 @@
 	 2. [Subqueries](#subqueries)
 	 3. [Naming Intermediate Results](#intresults)
  9. [Output](#output)
-	 9. [Printing Results](#print)
-	 10. [Output Result to CSV file](#output) 
+	 1. [Printing Results](#print)
+	 2. [Output Result to CSV file](#output) 
 
 <a name="introduction"></a>
 ## Introduction  
