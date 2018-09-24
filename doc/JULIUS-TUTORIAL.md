@@ -1278,7 +1278,9 @@ Amount     AccumAmount     Month
 12 rows returned
 --------------------------------------
 ```
+
 We have printed the result on screen with the use of the `printRTable` function, like this:
+
 ```haskell
 main :: IO()
 main = do 
