@@ -1246,7 +1246,7 @@ You can see that "myResult" is the name of the intermediate result up to and inc
 Printing the contents of an RTable on screen, in a user-friendly manner, is of course very important. To this end, the RTable.Core module of the DBFunctor package (which is also exported from the Etl.Julius module) includes the "printRTable" family of functions. These provide basically the following capabilities:
 
  - Printing with no column value formatting options
- - Formatted printing "a la printf"
+ - Column-formatted printing "a la printf"
  - Safe printing (formatted or not) in the presence of exceptions
 
 These are the topics of the next paragraphs. 
@@ -1287,7 +1287,7 @@ main = do
 	-- print target
 	printRTable trg
 ```
-Please note that this function does not give you the option to modify how the values of each column will appear (i.e., the formatting). Also with this function you cannot define the column order on screen (i.e., which column is printed first, which second , etc.). It is plain vanilla printing.
+Please note that this function does not give you the option to modify how the values of each column will appear (i.e., the formatting). Also with this function you cannot define the column order on screen (i.e., which column is printed first, which second , etc.). It is plain vanilla printing based on some default formatting options.
 #### Formatted Printing
 Enter the world of formatted printing! 
 #### Safe Printing
