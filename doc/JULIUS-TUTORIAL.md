@@ -1225,7 +1225,7 @@ In order, to access (i.e., reference) a named result, we have to use the `takeNa
 etlXpression = 
    EtlMapStart
    :-> (EtlC $ ...)  
-   -- "myResult" is a named operation 
+   -- "myResult" is a named operation, i.e., a named result 
    :=> NamedResult "myResult" (EtlR $ ...) 
    :-> (EtlR $ ... )
    :-> (EtlR $
