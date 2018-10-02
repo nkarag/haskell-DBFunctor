@@ -98,4 +98,11 @@ main = do
 	-- 3. print target
 	printRTable trg
 
+	-- 4. print formatted
+	printfRTable 	(genRTupleFormat 
+						["Month", "Amount", "AccumAmount"] $ -- specify column printing order
+						genColFormatMap [("Month", Format "< %.4s >"), ("Amount", Format "%-20.1e"), ("AccumAmount", Format "%.4f")]
+					) 
+					trg
+
 

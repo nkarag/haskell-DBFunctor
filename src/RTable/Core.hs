@@ -3156,9 +3156,11 @@ eitherPrintfRTable :: Exception e => (RTupleFormat -> RTable -> IO()) -> RTupleF
 eitherPrintfRTable printFunc fmt rtab = try $ printFunc fmt rtab
 
 -- | prints an RTable with an RTuple format specification.
--- It should be used instead of 'printRTable' for two reasons:
--- a) When we want to specify the order that the columns will be printed on screen
--- b) When we want to specify the formatting of the values by using a 'printf'-like 'FormatSpecifier'
+-- It can be used instead of 'printRTable' when one of the following two is required:
+--
+-- * a) When we want to specify the order that the columns will be printed on screen
+-- * b) When we want to specify the formatting of the values by using a 'printf'-like 'FormatSpecifier'
+--
 printfRTable :: RTupleFormat -> RTable -> IO()
 printfRTable rtupFmt rtab = -- undefined
     if isRTabEmpty rtab

@@ -1291,7 +1291,67 @@ main = do
 ```
 Please note that this function does not give you the option to modify how the values of each column will appear (i.e., the formatting). Also with this function you cannot define the column order on screen (i.e., which column is printed first, which second , etc.). It is plain vanilla printing based on some default formatting options.
 #### Formatted Printing
-Enter the world of formatted printing! 
+Enter the world of formatted printing! The RTable.Core module of the DBFunctor package (which is also exported from the Etl.Julius module) provides the `printfRTable` function, which is a "printf for RTables". It can be used instead of `printRTable`, when one of the following two is required:
+ - When we want to specify the order that the columns will be printed on screen 
+  - When we want to specify the formatting of the values by using
+   a "printf-like" format specifier (`FormatSpecifier`)
+
+Here is the signature:
+```haskell
+printfRTable :: RTupleFormat -> RTable -> IO()
+```
+In order to use this function, one has to provide the RTable to be printed along with an  RTuple formatting specification (`RTupleFormat`). This data type includes both of the formatting specifications mentioned above. To create such a data type we can use the `genRTupleFormat` function:
+```haskell
+genRTupleFormat :: [ColumnName]	-> ColFormatMap	-> RTupleFormat
+```
+The first argument (`[ColumnName]`) is a list of column names, which defines the order by which the input RTable's columns will be printed on screen. The second argument is a mapping (`ColFormatMap`) between a specific column and a format specification for the values of this column. The column is provided by `ColumnName` and the format specification for the values is essentially a String with "[printf](https://hackage.haskell.org/package/base-4.10.1.0/docs/Text-Printf.html)-like" format specifiers.
+In order to create such a mapping one has to use function `genColFormatMap`.
+```haskell
+genColFormatMap :: [(ColumnName, FormatSpecifier)] -> ColFormatMap
+``` 
+where
+```haskell
+data FormatSpecifier = DefaultFormat | Format String
+```
+is the formatting specification string that "works" like [printf](https://hackage.haskell.org/package/base-4.10.1.0/docs/Text-Printf.html). Lets see it in actions with a specific example.
+Returning to our previous example with the running total, assume that we want to impose the following printing order on the columns: Month, Amount, AccumAmount.
+And, assume also that we want to apply the following formatting rules:
+
+ - "Month": display only the first 4 characters (i.e., the year) and enclose within "< >"  (`Format "< %.4s >"`)
+ - "Amount": display in scientific notation with a single digit after the decimal point, left aligned in a total space of 20 characters (`Format "%-20.1e"`).
+ - "AccumAmount": Display 4 digits after the decimal point (`Format "%.4f"`)
+
+Here is the call to `printfRTable` that achieves the above formatting:
+```haskell
+-- print formatted
+	printfRTable 	(genRTupleFormat 
+						["Month", "Amount", "AccumAmount"] $ -- specify column printing order
+						genColFormatMap [("Month", Format "< %.4s >"), ("Amount", Format "%-20.1e"), ("AccumAmount", Format "%.4f")]
+					) 
+					trg
+```
+And here is the output.
+```
+--------------------------------------
+Month      Amount     AccumAmount
+~~~~~      ~~~~~~     ~~~~~~~~~~~
+< 2018 >   5.0e1               50.0000
+< 2018 >   5.6e1               105.5000
+< 2018 >   6.1e1               166.5000
+< 2018 >   6.6e1               233.0000
+< 2018 >   7.2e1               305.0000
+< 2018 >   7.8e1               382.5000
+< 2018 >   8.3e1               465.5000
+< 2018 >   8.8e1               554.0000
+< 2018 >   9.4e1               648.0000
+< 2018 >   1.0e2               747.5000
+< 2018 >   1.0e2               852.5000
+< 2018 >   1.1e2               963.0000
+
+
+12 rows returned
+--------------------------------------
+```
 #### Safe Printing
 <a name="output"></a>
 ### Output Result to CSV file
