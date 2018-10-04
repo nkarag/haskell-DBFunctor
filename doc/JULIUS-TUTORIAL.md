@@ -1353,6 +1353,33 @@ Month      Amount     AccumAmount
 --------------------------------------
 ```
 #### Safe Printing
+ We have seen functions `printRTable` and `printfRTable` for printing and formatted printing of an RTable respectively. However, in real life things don't always work out smoothly and thus, within an IO Monad, an exception might be thrown.  Typically, an exception will be thrown while we are evaluating a Julius expression in order to create the resulting RTable.
+
+In order to handle this case gracefully the RTable.Core module provides two"safe"  alternatives for printing an RTable, namely functions: eitherPrintRTable and eitherPrintfRTable. These functions return an Either data type, so as to give the ability to handle exceptions gracefully, during the evaluation of the input RTable. The signature of these functions follows next.
+```haskell
+eitherPrintRTable :: Exception e 
+	=> (RTable -> IO ()) 
+	-> RTable 
+	-> IO (Either e ())
+
+eitherPrintfRTable :: Exception e 
+	=> (RTupleFormat -> RTable -> IO ()) 
+	-> RTupleFormat 
+	-> RTable 
+	-> IO (Either e ())
+```
+The first argument of these functions are the printRTable and printfRTable functions respectively. Then, we provide the parameters that each one of these two functions require.
+Here is a short example:
+```haskell
+do 
+ p <- (eitherPrintRTable	printRTable $
+							juliusToRTable $ <a Julius expression>                                 
+      ) :: IO (Either SomeException ())
+ case p of
+           Left exc -> putStrLn $ "There was an error in the Julius evaluation: " ++ (show exc)
+           Right _  -> return ()
+```
+ We see that we call function `juliusToRTable`, in order to evaluate a Julius expression into an RTable. If from this evaluation some problem comes up, then an exception will be thrown and will be delivered in the `Left` part of the returned `Either` data type, giving us the chance to handle it gracefully.
 <a name="output"></a>
 ### Output Result to CSV file
 

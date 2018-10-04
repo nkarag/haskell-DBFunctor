@@ -167,7 +167,7 @@ main = do
 						:.	(Filter (From $ Tab rtab) $
 								FilterBy 	(
 												\t ->	let 
-															tbname = case toText (t <!> "TABLE_NAME") of
+															tbname = case toText (t <!> "TABLE_NAM") of
 																		Just t -> t
 																		Nothing -> pack ""
 														in (T.take 1 tbname) == (pack prefix)
