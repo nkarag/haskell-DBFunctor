@@ -261,7 +261,7 @@ main = do
 ```
 
 ### Julius Tutorial 
-We written [a Julius tutorial](https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md) to help you get started with Julius DSL. 
+We have written [a Julius tutorial](https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md) to help you get started with Julius DSL. 
 <a  name="howtorun"></a> 
 ### How to run
 Download or clone DBFunctor in a new directory, 
