@@ -1382,6 +1382,56 @@ do
  We see that we call function `juliusToRTable`, in order to evaluate a Julius expression into an RTable. If from this evaluation some problem comes up, then an exception will be thrown and will be delivered in the `Left` part of the returned `Either` data type, giving us the chance to handle it gracefully.
 <a name="output"></a>
 ### Output Result to CSV file
+The most common method to make your result RTable persistent is of course to save itnot a csv file. If you remember from the [Julius DDL: Creating an RTable from a CSV file](#ddl) section, the RTable.Data.CSV module exposes a `CSV` data type, which is an instance of the `RTabular` type class and thus it implements functions `toRTable` and `fromRTable`, in order to convert from/to a data type `a` to/from an RTable. 
 
+The signature of the `fromRTable` function is the following:
+```haskell
+fromRTable :: (RTabular a) => RTableMData -> RTable -> a
+```
+So, as long as you can provide the appropriate RTable metadata (i.e., the RTable column names and their respective data types), the conversion of an RTable to a target data type (e.g., `CSV`), is very simple. Going back to the example in section  [Julius DDL: Creating an RTable from a CSV file](#ddl), we can see in step 5, how we can store the result RTable into csv file "myresults.csv".
+```haskell
+import     Etl.Julius
+import     RTable.Data.CSV     (CSV, readCSV, writeCSV, toRTable)
+
+main:: IO()
+main = do
+	-- 1. Read the csv file
+	mycsv <- readCSV "mydata.csv"
+
+	-- 3. Transform CSV data type into an RTable data type
+	let myRTable = toRTable rtabMdata mycsv
+
+	-- 4. Do stuff with your new RTable
+	resultRTab <- runJulius $ myJulExpression myRTable
+
+	-- 5. Write result into a csv file
+	writeCSV  "myresults.csv"  $  fromRTable  resultRTabMData  resultRTab 
+		
+	where
+		-- 2. Define the structure of the RTable
+		rtabMData :: RTableMData
+		rtabMData = createRTableMData (
+			"myTab"  -- table name
+			,[	("OWNER", Varchar)				-- Owner of the table
+				,("TABLE_NAME", Varchar)		-- Name of the table
+				,("TABLESPACE_NAME", Varchar)	-- Tablespace name
+				,("STATUS",Varchar)				-- Status of the table object (VALID/IVALID)
+				,("NUM_ROWS", Integer)			-- Number of rows in the table
+				,("BLOCKS", Integer)			-- Number of Blocks allocated for this table
+				,("LAST_ANALYZED", Timestamp "MM_DD_YYYY HH24:MI:SS")	-- Timestamp of the last time the table was analyzed (i.e., gathered statistics)
+			]
+		)
+			["OWNER", "TABLE_NAME"] -- primary key
+			[]	-- (alternative) unique keys
+		
+		-- Define result RTable metadata
+		resultRTabMData :: RTableMData
+		resultRTabMData = ...
+
+		-- Define a Julius expression for the processing of the input data
+		myJulExpression :: RTable -> ETLMappingExpr
+		myJulExpression = ...
+		
+```
 
 > Written with [StackEdit](https://stackedit.io/).
