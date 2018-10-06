@@ -592,11 +592,11 @@ import qualified Data.Typeable as TB --(typeOf, Typeable)
 import qualified Data.Dynamic as D  -- https://hackage.haskell.org/package/base-4.9.1.0/docs/Data-Dynamic.html
 
 -- Data.List
-import Data.List (last, all, elem, map, null, zip, zipWith, elemIndex, sortOn, union, intersect, (\\), take, length, repeat, groupBy, sort, sortBy, foldl', foldr, foldr1, foldl',head, findIndex, tails, isPrefixOf)
+import Data.List (last, all, elem, break, span, map, null, zip, zipWith, elemIndex, sortOn, union, intersect, (\\), take, length, repeat, groupBy, sort, sortBy, foldl', foldr, foldr1, foldl',head, findIndex, tails, isPrefixOf)
 -- Data.Maybe
 import Data.Maybe (fromJust, fromMaybe)
 -- Data.Char
-import Data.Char (toUpper,digitToInt, isDigit)
+import Data.Char (toUpper,digitToInt, isDigit, isAlpha)
 -- Data.Monoid
 import Data.Monoid as M
 -- Control.Monad
@@ -784,7 +784,7 @@ instance Eq RDataType where
 instance Ord RDataType where
     Null <= _ = False
     _ <= Null = False
-    Null <= Null = False
+    -- Null <= Null = False -- Comment out due to redundant warning
     RInt i1 <= RInt i2 = i1 <= i2
     RText t1 <= RText t2 = t1 <= t2
     RDate t1 s1 <= RDate t2 s2 = (t1 <= t1) && (s1 == s2)
@@ -1109,17 +1109,16 @@ instance Ord RTimestamp where
 -- Valid format patterns are:
 --
 -- * For year: @YYYY@, e.g., @"0001"@, @"2018"@
--- * For month: @MM@, e.g., @"01"@, @"12"@
--- * For day: @DD@, e.g.,  @"01"@, @"31"@
+-- * For month: @MM@, e.g., @"01"@, @"1"@, @"12"@
+-- * For day: @DD@, e.g.,  @"01"@, @"1"@, @"31"@
 -- * For hours: @HH@, @HH24@ e.g., @"00"@, @"23"@ I.e., hours must be specified in 24 format
--- * For minutes: @MI@, e.g., @"01"@, @"59"@
--- * For seconds: @SS@, e.g., @"00"@, @"59"@
+-- * For minutes: @MI@, e.g., @"01"@, @"1"@, @"59"@
+-- * For seconds: @SS@, e.g., @"01"@, @"1"@, @"59"@
 --
---  The function assumes that each 'RTimestamp' component in the input 'String' will be
--- at the same exactly position as the format specifier
 -- Example of a typical format string is: @"DD\/MM\/YYYY HH:MI:SS@
 -- 
 -- If no valid format pattern is found then an 'UnsupportedTimeStampFormat' exception is thrown
+--
 toRTimestamp ::
     String      -- ^ Format string e.g., "DD\/MM\/YYYY HH:MI:SS"
     -> String   -- ^ Timestamp string
@@ -1133,21 +1132,95 @@ toRTimestamp fmt stime =
         else 
             let 
                 -- replace HH24 to HH
-                formatSpec = Data.String.Utils.replace "HH24" "HH" fmt
-                -- parse format string and get positions of key timestamp format fields in the format string
+                formatSpec = Data.String.Utils.replace "HH24" "HH" 
+
+            ------ New logic
+ 
+                -- build a hashmap of "format elements" to "time elements"
+                elemMap = parseFormat2 fmt stime HM.empty
+
+                -- year
+                y = case HM.lookup "YYYY" elemMap of
+                        Nothing -> 1 :: Int 
+                        Just yyyy  ->   (abs $ (digitToInt $ (yyyy !! 0)) * 1000)
+                                        +   (abs $ (digitToInt $ (yyyy !! 1)) * 100) 
+                                        +   (abs $ (digitToInt $ (yyyy !! 2)) * 10)
+                                        +   (abs $ digitToInt $ (yyyy !! 3))
+                -- round to 1 - 9999
+                year = case y `rem` 9999 of 
+                    0 -> 9999
+                    yv -> yv
+
+                -- month
+                mo = case HM.lookup "MM" elemMap of
+                        Nothing ->  1 :: Int
+                        Just mm  ->  -- Also take care the case where mm < 10 and is not given as two digits e.g., '03' but '3'
+                                    if Data.List.length mm == 1
+                                        then (abs $ (digitToInt $ (mm !! 0)) * 1)
+                                        else
+                                            (abs $ (digitToInt $ (mm !! 0)) * 10)
+                                            +  (abs $ digitToInt $ (mm !! 1)) 
+                -- round to 1 - 12 values 
+                month = case mo `rem` 12 of
+                            0  -> 12
+                            mv -> mv
+
+                -- day                            
+                d = case HM.lookup "DD" elemMap of
+                        Nothing ->  1 :: Int
+                        Just dd ->  -- Also take care the case where dd < 10 and is not given as two digits e.g., '03' but '3'
+                                    if Data.List.length dd == 1
+                                        then (abs $ (digitToInt $ (dd !! 0)) * 1)
+                                        else
+                                            (abs $ (digitToInt $ (dd !! 0)) * 10)
+                                            +  (abs $ digitToInt $ (dd !! 1)) 
+                -- round to 1 - 31 values 
+                day = case d `rem` 31 of
+                            0  -> 31
+                            dv -> dv
+
+                -- hour
+                h = case HM.lookup "HH" elemMap of
+                        Nothing ->  0 :: Int
+                        Just hh ->  -- Also take care the case where hh < 10 and is not given as two digits e.g., '03' but '3'
+                                    if Data.List.length hh == 1
+                                        then (abs $ (digitToInt $ (hh !! 0)) * 1)
+                                        else
+                                            (abs $ (digitToInt $ (hh !! 0)) * 10)
+                                            +  (abs $ digitToInt $ (hh !! 1)) 
+                -- round to 0 - 23 values 
+                hour = h `rem` 24 
+
+                -- minutes
+                m = case HM.lookup "MI" elemMap of
+                        Nothing ->  0 :: Int
+                        Just mi ->  -- Also take care the case where mi < 10 and is not given as two digits e.g., '03' but '3'
+                                    if Data.List.length mi == 1
+                                        then (abs $ (digitToInt $ (mi !! 0)) * 1)
+                                        else
+                                            (abs $ (digitToInt $ (mi !! 0)) * 10)
+                                            +  (abs $ digitToInt $ (mi !! 1)) 
+                -- round to 0 - 59 values 
+                min = m `rem` 60 
+
+
+                -- seconds
+                s = case HM.lookup "SS" elemMap of
+                        Nothing ->  0 :: Int
+                        Just ss ->  -- Also take care the case where mi < 10 and is not given as two digits e.g., '03' but '3'
+                                    if Data.List.length ss == 1
+                                        then (abs $ (digitToInt $ (ss !! 0)) * 1)
+                                        else
+                                            (abs $ (digitToInt $ (ss !! 0)) * 10)
+                                            +  (abs $ digitToInt $ (ss !! 1)) 
+                -- round to 0 - 59 values 
+                sec = s `rem` 60 
+
+
+-------------- old logic
+{-                -- parse format string and get positions of key timestamp format fields in the format string
                 posmap = parseFormat formatSpec
-{-
-                -- length comparison of input strings
-                foundHH24 = posmap ! "HH24"
-                dummy =  
-                    if  ( (Data.List.length fmt /= Data.List.length stime) && (foundHH24 == Nothing) )
-                         ||
-                            --  add 2 for "24"
-                        ( (( (Data.List.length fmt) + 2) /= (Data.List.length stime)) && (foundHH24 /= Nothing) ) 
-                        then throw $ RTimestampFormatLengthMismatch fmt stime
-                        else "OK"
-                                                                          
--}
+
                 -- year
                 posY = fromMaybe (-1) $ posmap ! "YYYY"
                 y = case posY of
@@ -1176,8 +1249,10 @@ toRTimestamp fmt stime =
                 posD = fromMaybe (-1) $ posmap ! "DD"
                 d = case posD of
                     -1  ->  1 :: Int  
-                    _   ->     (abs $ (digitToInt $ (stime !! posD)) * 10)
-                            +  (abs $ digitToInt $ (stime !! (posD+1))) 
+                    _   ->  (abs $ (digitToInt $ (stime !! posD)) * 10)
+                            +  (abs $ digitToInt $ (stime !! (posD+1)))
+
+
                 -- round to 1 - 31 values 
                 day = case d `rem` 31 of
                             0  -> 31
@@ -1209,6 +1284,7 @@ toRTimestamp fmt stime =
                             +  (abs $ digitToInt $ (stime !! (posS+1))) 
                 -- round to 0 - 59 values 
                 sec = s `rem` 60 
+-}
             in RTimestampVal {
                                 year = year
                                 ,month = month
@@ -1219,55 +1295,46 @@ toRTimestamp fmt stime =
                 }
     where
         -- the map returns the position of the first character of the corresponding timestamp element
-        parseFormat :: String -> HashMap String (Maybe Int)
+{-        parseFormat :: String -> HashMap String (Maybe Int)
         parseFormat fmt = 
             let 
                 keywords = ["YYYY","MM", "DD", "HH", "MI", "SS"]
                 positions = Data.List.map (\subs -> instr subs fmt) keywords
             in 
-                -- if no keyword found then trhow an exception
+                -- if no keyword found then throw an exception
                 if Data.List.all (\t -> t == Nothing) $ positions
                     then throw $ UnsupportedTimeStampFormat fmt
                     else
                         HM.fromList $ Data.List.zip keywords positions
 
-
-{-                                parseFormat :: String -> HashMap Char Int
-        parseFormat fmt = 
-            let
-                ymap = case elemIndices 'Y' s of
-                            y1 : y2 : y3 : y4 : [] -> HM.fromList [('Y1',y1),('Y2',y2),('Y3',y3),('Y4',y4)]
-                            y2 : y3 : y4 : [] -> HM.fromList [('Y2',y2),('Y3',y3),('Y4',y4)]
-                            y3 : y4 : [] -> HM.fromList [('Y3',y3),('Y4',y4)]
-                            y4 : [] -> HM.fromList [('Y4',y4)]
-                            [] -> HM.empty
-                            _  -> throw $ UnsupportedTimeStampFormat s
-
-                dmap = case elemIndices 'D' s of
-                            d1 : d2 : [] -> HM.fromList [('D1',d1),('D2',d2)]
-                            d2 : [] -> HM.fromList [('D2',d2)]
-                            [] -> HM.empty
-                            _  -> throw $ UnsupportedTimeStampFormat s                                
-
-                hmap = case elemIndices 'H' s of
-                            h1 : h2 : [] -> HM.fromList [('H1',h1),('H2',h2)]
-                            h2 : [] -> HM.fromList [('H2',h2)]
-                            [] -> HM.empty
-                            _  -> throw $ UnsupportedTimeStampFormat s                                
-
-                smap = case elemIndices 'S' s of
-                            s1 : s2 : [] -> HM.fromList [('S1',s1),('S2',s2)]
-                            s2 : [] -> HM.fromList [('S2',s2)]
-                            [] -> HM.empty
-                            _  -> throw $ UnsupportedTimeStampFormat s                                
-            in ymap `HM.union` dmap `HM.union` hmap `HM.union` smap  
 -}
+        parseFormat2 :: 
+            String      -- Format string e.g., "DD/MM/YYYY HH:MI:SS"
+            -> String   --  Timestamp string
+            -> HashMap String String -- current map
+            -> HashMap String String -- output map
+        parseFormat2 [] _ currMap = currMap
+        parseFormat2 fmt tstamp currMap =
+            let
+                -- search for the format keywords (in each iteration)
+                keywords = ["YYYY","MM", "DD", "HH", "MI", "SS"]
+                positions = Data.List.map (\subs -> instr subs fmt) keywords
 
-
-
-
---rtimeStampToString
-
+                -- get from format string the first substring  of letter characters
+                (fmtElement, restFormat) = Data.List.span (\c -> isAlpha c) fmt
+                -- remove prefix non-Alpha characters from rest
+                restFormatFinal = snd $ Data.List.span (\c -> not $ isAlpha c) restFormat
+                -- get from tstamp string the first substring  of number characters
+                (tmElement, restTstamp) =  Data.List.span (\c -> isDigit c) tstamp
+                -- remove prefix non-Digit characters from rest
+                restTstampFinal = snd $ Data.List.span (\c -> not $ isDigit c) restTstamp
+                -- insert into map the pair 
+                newMap = HM.insert fmtElement tmElement currMap
+            in 
+                -- if no keyword found then throw an exception
+                if Data.List.all (\t -> t == Nothing) $ positions
+                    then throw $ UnsupportedTimeStampFormat fmt
+                    else parseFormat2 restFormatFinal restTstampFinal newMap
 
 
 -- | Search for the first occurence of a substring within a 'String' and return the 1st character position,
@@ -1306,13 +1373,26 @@ instrRText (RText subs) (RText s) = instrText subs s
 instrRText _ _ = Nothing 
 
 
--- | Creates an RTimestamp data type from an input timestamp format string and a timestamp value represented as Text.
+-- | Creates an RTimestamp data type from an input timestamp format string and a timestamp value represented as a `String`.
+-- Valid format patterns are:
+--
+-- * For year: @YYYY@, e.g., @"0001"@, @"2018"@
+-- * For month: @MM@, e.g., @"01"@, @"1"@, @"12"@
+-- * For day: @DD@, e.g.,  @"01"@, @"1"@, @"31"@
+-- * For hours: @HH@, @HH24@ e.g., @"00"@, @"23"@ I.e., hours must be specified in 24 format
+-- * For minutes: @MI@, e.g., @"01"@, @"1"@, @"59"@
+-- * For seconds: @SS@, e.g., @"01"@, @"1"@, @"59"@
+--
+-- Example of a typical format string is: @"DD\/MM\/YYYY HH:MI:SS@
+-- 
+-- If no valid format pattern is found then an 'UnsupportedTimeStampFormat' exception is thrown
+--
 createRTimestamp :: 
     String      -- ^ Format string e.g., "DD\/MM\/YYYY HH24:MI:SS"
     -> String   -- ^ Timestamp string
     -> RTimestamp
-createRTimestamp fmt timeVal = -- toRTimestamp fmt timeVal
-    case Prelude.map (Data.Char.toUpper) fmt of
+createRTimestamp fmt timeVal = toRTimestamp fmt timeVal
+    {-case Prelude.map (Data.Char.toUpper) fmt of
         "DD/MM/YYYY HH24:MI:SS"     -> parseTime timeVal
         "\"DD/MM/YYYY HH24:MI:SS\"" -> parseTime timeVal
         "MM/DD/YYYY HH24:MI:SS"     -> parseTime timeVal
@@ -1388,7 +1468,7 @@ createRTimestamp fmt timeVal = -- toRTimestamp fmt timeVal
                                                                                                 }
 
         parseTime _ = RTimestampVal {year = 2999, month = 12, day = 31, hours24 = 11, minutes = 59, seconds = 59}
-
+-}
 
 -- Convert from an RDate or RTimestamp to a UTCTime
 {-

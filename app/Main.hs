@@ -3,7 +3,7 @@
 module Main where
 
 -- import  RTable.Core         (RTableMData ,ColumnDType (..) ,createRTableMData, restrictNrows, printfRTable, genRTupleFormat, genDefaultColFormatMap, toText, (<!>))
-import  RTable.Data.CSV     (CSV, readCSV, writeCSV, toRTable) -- MyType (..) )
+import  RTable.Data.CSV     (readCSV, toRTable) -- MyType (..) )
 import  Etl.Julius          
 
 import Data.Text            (take, pack) 
