@@ -974,10 +974,17 @@ decodeColValue cname searchVal returnVal defaultVal ignoreInd tup =
     if isRTupEmpty tup
         then Null
         else 
+{-
             case tup <!> cname of
                 searchVal   -> returnVal
                 v           -> if ignoreInd == Ignore then v else defaultVal 
-
+-}
+            if tup <!> cname == searchVal
+                then returnVal
+                else
+                    if ignoreInd == Ignore
+                        then tup <!> cname
+                        else defaultVal
 
 -- | It receives an RTuple and a default value. It returns a new RTuple which is identical to the source one
 -- but every Null value in the specified colummn has been replaced by a default value
