@@ -1,0 +1,100 @@
+-- This file has been generated from package.yaml by hpack version 0.20.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 99671845ea773b6269f7c818d876e85741000c789f156dfc6c6f5d513eec516e
+
+name:           DBFunctor
+version:        0.1.0.0
+synopsis:       DBFunctor - Functional Data Management =>  ETL/ELT Data Processing in Haskell
+description:    Please see the README on Github at https://github.com/nkarag/haskell-DBFunctor
+category:       ETL
+homepage:       https://github.com/nkarag/DBFunctor#readme
+bug-reports:    https://github.com/nkarag/DBFunctor/issues
+author:         Nikos Karagiannidis
+maintainer:     nkarag@gmail.com
+copyright:      2018 Nikos Karagiannidis
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+cabal-version:  >= 1.10
+
+extra-source-files:
+    ChangeLog.md
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/nkarag/DBFunctor
+
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      MissingH
+    , base >=4.7 && <5
+    , bytestring
+    , cassava
+    , cereal
+    , containers
+    , deepseq
+    , either
+    , text
+    , transformers
+    , unordered-containers
+    , vector
+  exposed-modules:
+      Etl.Internal.Core
+      Etl.Julius
+      RTable.Core
+      RTable.Data.CSV
+  other-modules:
+      Paths_DBFunctor
+  default-language: Haskell2010
+
+executable dbfunctor-example
+  main-is: Main.hs
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+  build-depends:
+      DBFunctor
+    , MissingH
+    , base >=4.7 && <5
+    , bytestring
+    , cassava
+    , cereal
+    , containers
+    , deepseq
+    , either
+    , text
+    , transformers
+    , unordered-containers
+    , vector
+  other-modules:
+      Paths_DBFunctor
+  default-language: Haskell2010
+
+test-suite dbfunctor-test
+  type: exitcode-stdio-1.0
+  main-is: DBFTests.hs
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+  build-depends:
+      DBFunctor
+    , MissingH
+    , base >=4.7 && <5
+    , bytestring
+    , cassava
+    , cereal
+    , containers
+    , deepseq
+    , either
+    , text
+    , transformers
+    , unordered-containers
+    , vector
+  other-modules:
+      Paths_DBFunctor
+  default-language: Haskell2010
