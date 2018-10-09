@@ -1,10 +1,12 @@
 .stack-work/
-DBFunctor.cabal
+.gitignore
 readings/
 misc/
 *~
 todo.txt
 DBFunctor.hidecabal
+testprint.hs
+Setup.hs
 doc/*.pptx
 test/data/usefull_material.docx
 app/test-data.sql
