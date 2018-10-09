@@ -3,7 +3,7 @@ Module      : Julius
 Description : A simple Embedded DSL for ETL/ELT data processing in Haskell
 Copyright   : (c) Nikos Karagiannidis, 2018
                   
-License     : GPL-3
+License     : BSD3
 Maintainer  : nkarag@gmail.com
 Stability   : stable
 Portability : POSIX

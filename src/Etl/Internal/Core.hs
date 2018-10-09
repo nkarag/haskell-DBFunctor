@@ -3,7 +3,7 @@ Module      : ETL
 Description : Implements ETL operations over RTables.
 Copyright   : (c) Nikos Karagiannidis, 2018
                   
-License     : GPL-3
+License     : BSD3
 Maintainer  : nkarag@gmail.com
 Stability   : stable
 Portability : POSIX

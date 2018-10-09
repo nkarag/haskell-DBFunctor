@@ -3,7 +3,7 @@ Module      : RTable
 Description : Implements the relational Table concept. Defines all necessary data types like RTable and RTuple as well as basic relational algebra operations on RTables.
 Copyright   : (c) Nikos Karagiannidis, 2018
                   
-License     : GPL-3
+License     : BSD3
 Maintainer  : nkarag@gmail.com
 Stability   : stable
 Portability : POSIX

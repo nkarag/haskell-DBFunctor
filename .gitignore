@@ -4,6 +4,7 @@ readings/
 misc/
 *~
 todo.txt
+DBFunctor.cabal
 DBFunctor.hidecabal
 testprint.hs
 Setup.hs
