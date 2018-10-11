@@ -1,7 +1,7 @@
 ﻿![dbfunctor logo](./dbfunctor.png)
 # DBFunctor:  Functional Data Management
 ## ETL/ELT* Data Processing in Haskell
-**DBFunctor** is a [Haskell](https://haskell-lang.org/) library for *ETL/ELT[^1]* data processing of tabular data. What does this mean?
+**[DBFunctor](https://hackage.haskell.org/package/DBFunctor)** is a [Haskell](https://haskell-lang.org/) library for *ETL/ELT[^1]* data processing of tabular data. What does this mean?
 It simply means that whenever you have a ***data analysis*, *data preparation*, or *data transformation* task** and you want to do it with Haskell type-safe code, that you enjoy, love and trust so much, now you can! 
 ### Main Features
  1. **Julius: An Embedded Domain Specific (EDSL) Language for ETL**
@@ -137,20 +137,28 @@ which comes from the `RTabular` type class instance of the `CSV` data type.
  **2. Query the RTable**
 Once we have created an RTable, we can issue queries on it, or apply any type of data transformations. Note that due to immutability, each query or data transformation creates a new RTable.
  We will now issue the following query:
-We return all the rows, which correspond to some filter predicate - in particular all rows where the table_name starts with a 'B'. For this we use the Julius EDSL, in order to express the query and then with the function `juliusToRTable :: ETLMappingExpr -> RTable `, we evaluate the expression into an RTable.
+We return all the rows, which correspond to some filter predicate - in particular all rows where the `TABLE_NAME` includes some search string and the `LAST_ANALYZED` field is greater than an input date.
+
+For this we use the Julius EDSL, in order to express the query and then with the function 
+`runJulius`, we evaluate the expression into an RTable.
 ```haskell
-tabs_with_B = juliusToRTable $
-   EtlMapStart
-   :-> (EtlR $
-           ROpStart
-              -- apply a filter on RTable "src_DBTab" based on a predicate, expressed with a lambda expression
-           :. (Filter (From $ Tab src_DBTab) $                 
-                   FilterBy (\t ->	let fstChar = Data.Text.take 1 $ fromJust $ toText (t <!> "TABLE_NAME")
-						            in fstChar == (pack "B"))
-           )
-              -- A simple column projection applied on the Previous result
-           :. (Select ["OWNER", "TABLE_NAME"] $  From Previous)
-   )
+runJulius :: ETLMappingExpr -> IO RTable
+```
+Here is the Julius expression that yield the desired results.
+```haskell
+julExpr srch dtstr rtab = 
+            EtlMapStart 
+                :-> (EtlR $
+                        ROpStart
+                        :.  (Filter (From $ Tab rtab) $
+                                FilterBy (\t -> case instrRText (RText srch) (t <!> "TABLE_NAME") of
+                                                    Just p  -> True
+                                                    Nothing -> False
+                                                &&
+                                                (t <!> "LAST_ANALYZED") >= (RTime $ toRTimestamp "DD/MM/YYYY" dtstr)
+                                         )
+                            )
+                    )
 ```
 A Julius expression is a *data processing chain* consisting of various Relational Algebra operations `(EtlR $ ...)`  and/or column mappings `(EtlC $ ...)` connected together via the `:->` data constructor,  of the form (Julius expressions are read *from top-to-bottom  or from left-to-right*):
 ```haskell
@@ -171,48 +179,69 @@ myJulExpression =
 	:-> (EtlC $ ...) -- This is Column Mapping 4
 	...
 ```
-In our example, the Julius expression consists only of two relational algebra operations: a `Filter` operation, which uses an RTuple  predicate of the form 	`RTuple -> Bool` to filter out RTuples (i.e., rows) that dont satisfy this predicate. The predicate is expressed as the lambda expression:
+In our example, the Julius expression consists only of a single relational algebra operation, namely a `Filter` operation, which uses an RTuple  predicate of the form 	`RTuple -> Bool` to filter out RTuples (i.e., rows) that dont satisfy this predicate. The predicate is expressed as the lambda expression:
 ```haskell
-FilterBy (\t ->	let fstChar = Data.Text.take 1 $ fromJust $ toText (t <!> "TABLE_NAME")
-				in fstChar == (pack "B"))
+FilterBy (\t -> case instrRText (RText srch) (t <!> "TABLE_NAME") of
+                                                    Just p  -> True
+                                                    Nothing -> False
+                                                &&
+                                                (t <!> "LAST_ANALYZED") >= (RTime $ toRTimestamp "DD/MM/YYYY" dtstr)
 ```
-The second relational operation is a simple Projection expressed with the node `(Select ["OWNER", "TABLE_NAME"] $ From Previous)`
-Finally, in order to print the result of the query on the screen, we use the `printfRTable :: RTupleFormat -> RTable -> IO()` function, which brings printf-like functionality into the printing of RTables
+We use the [instrRText](https://hackage.haskell.org/package/DBFunctor-0.1.0.0/docs/RTable-Core.html#g:16) function to find these table_name values that include the `srch` string. Also, we use the [toRTimestamp](https://hackage.haskell.org/package/DBFunctor-0.1.0.0/docs/RTable-Core.html#g:15) function, in order to turn the date string `dtstr` into an `RTimestamp` data type and compare it against the `LAST_ANALYZED` column,
+
+Finally, in order to print the result of the query on the screen, we use the 
+```haskell
+printfRTable :: RTupleFormat -> RTable -> IO()
+``` 
+function, which brings printf-like functionality into the printing of RTables
 And here is the output:
 ```
-$ stack exec -- dbfunctor-example
-These are the tables that start with a "B":
+$ stack exec -- exampleDBFunctor
 
--------------------------------------
-OWNER      TABLE_NAME                
-~~~~~      ~~~~~~~~~~                
-DBSNMP     BSLN_BASELINES            
-DBSNMP     BSLN_METRIC_DEFAULTS      
-DBSNMP     BSLN_STATISTICS           
-DBSNMP     BSLN_THRESHOLD_PARAMS     
-SYS        BOOTSTRAP$                
+Print all tables that incude a "search string" in their name and have been analyzed after a specific date
 
-5 rows returned
--------------------------------------
+Give me the search string:
+FLOW
+Give me the date in "DD/MM/YYYY" format:
+01/04/2018
+---------------------------------------------------------------------------------------------------------------------------------
+OWNER           TABLE_NAME                        TABLESPACE_NAME     STATUS     NUM_ROWS     BLOCKS     LAST_ANALYZED
+~~~~~           ~~~~~~~~~~                        ~~~~~~~~~~~~~~~     ~~~~~~     ~~~~~~~~     ~~~~~~     ~~~~~~~~~~~~~
+APEX_040100     WWV_FLOW_ACTIVITY_LOG1$           SYSAUX              VALID      4052         155        04/04/2018 18:19:56
+APEX_040100     WWV_FLOW_ACTIVITY_LOG2$           SYSAUX              VALID      1771         92         16/04/2018 17:33:16
+APEX_040100     WWV_FLOW_ACTIVITY_LOG_NUMBER$     SYSAUX              VALID      1            3          10/04/2018 16:09:25
+APEX_040100     WWV_FLOW_COMPANIES                SYSAUX              VALID      10           3          16/04/2018 17:33:13
+APEX_040100     WWV_FLOW_DATA                     SYSAUX              VALID      109          155        16/04/2018 16:06:38
+APEX_040100     WWV_FLOW_DEBUG_MESSAGES2          SYSAUX              VALID      0            0          10/04/2018 16:09:25
+APEX_040100     WWV_FLOW_FND_USER                 SYSAUX              VALID      50           3          05/04/2018 18:09:23
+APEX_040100     WWV_FLOW_PAGE_CACHE               SYSAUX              VALID      22           3          05/04/2018 18:35:18
+APEX_040100     WWV_FLOW_SESSIONS$                SYSAUX              VALID      182          26         16/04/2018 16:07:13
+APEX_040100     WWV_FLOW_USER_ACCESS_LOG1$        SYSAUX              VALID      127          5          11/04/2018 18:27:17
+APEX_040100     WWV_FLOW_USER_ACCESS_LOG2$        SYSAUX              VALID      39           5          16/04/2018 17:30:59
+APEX_040100     WWV_FLOW_USER_ACCESS_LOG_NUM$     SYSAUX              VALID      1            3          12/04/2018 16:30:05
+APEX_040100     WWV_FLOW_WORKSHEET_CONDITIONS     SYSAUX              VALID      501          18         16/04/2018 17:33:03
+APEX_040100     WWV_FLOW_WORKSHEET_GROUP_BY       SYSAUX              VALID      22           3          03/04/2018 17:44:07
+APEX_040100     WWV_FLOW_WORKSHEET_RPTS           SYSAUX              VALID      505          16         16/04/2018 17:33:01
+FLOWS_FILES     WWV_FLOW_FILE_OBJECTS$            SYSAUX              VALID      302          16         13/04/2018 18:00:05
+
+
+16 rows returned
+---------------------------------------------------------------------------------------------------------------------------------
 ```
-Here is the complete example.
+**Here is the complete example**.
 ```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import  RTable.Core         (RTableMData ,ColumnDType (..) ,createRTableMData, printfRTable, genRTupleFormat, genDefaultColFormatMap, toText, (<!>))
-import  RTable.Data.CSV     (CSV, readCSV, toRTable)
-import  Etl.Julius          
+import  Etl.Julius  
+import  RTable.Data.CSV     (CSV, readCSV, toRTable, writeCSV)
+import  Data.Text.IO as T   (getLine)
 
-import Data.Text            (take, pack)
-import Data.Maybe           (fromJust)
-
-
---  Define Source Schema (i.e., a set of tables)
-
--- | This is the basic source table
--- It includes the tables of an imaginary database
+-- This is the input source table metadata
+-- It includes the tables stored in an imaginary database
 src_DBTab_MData :: RTableMData
-src_DBTab_MData =
+src_DBTab_MData = 
     createRTableMData   (   "sourceTab"  -- table name
                             ,[  ("OWNER", Varchar)                                      -- Owner of the table
                                 ,("TABLE_NAME", Varchar)                                -- Name of the table
@@ -220,75 +249,93 @@ src_DBTab_MData =
                                 ,("STATUS",Varchar)                                     -- Status of the table object (VALID/IVALID)
                                 ,("NUM_ROWS", Integer)                                  -- Number of rows in the table
                                 ,("BLOCKS", Integer)                                    -- Number of Blocks allocated for this table
-                                ,("LAST_ANALYZED", Timestamp "MM/DD/YYYY HH24:MI:SS")   -- Timestamp of the last time the table was analyzed (i.e., gathered statistics)
+                                ,("LAST_ANALYZED", Timestamp "MM/DD/YYYY HH24:MI:SS")   -- Timestamp of the last time the table was analyzed (i.e., gathered statistics) 
                             ]
                         )
                         ["OWNER", "TABLE_NAME"] -- primary key
                         [] -- (alternative) unique keys
 
--- | Define Target Schema (i.e., a set of tables)
-
+-- Result RTable metadata
+result_tab_MData :: RTableMData
+result_tab_MData = 
+    createRTableMData   (   "resultTab"  -- table name
+                            ,[  ("OWNER", Varchar)                                      -- Owner of the table
+                                ,("TABLE_NAME", Varchar)                                -- Name of the table
+                                ,("LAST_ANALYZED", Timestamp "MM/DD/YYYY HH24:MI:SS")   -- Timestamp of the last time the table was analyzed (i.e., gathered statistics) 
+                            ]
+                        )
+                        ["OWNER", "TABLE_NAME"] -- primary key
+                        [] -- (alternative) unique keys
 
 main :: IO ()
 main = do
-    -- read source csv file
+     -- read source csv file
     srcCSV <- readCSV "./app/test-data.csv"
 
-    let
-        -- create source RTable from source csv
-        src_DBTab = toRTable src_DBTab_MData srcCSV      
+    putStrLn "\nPrint all tables that incude a \"search string\" in their name and have been analyzed after a specific date\n"
+    putStrLn "Give me the search string: "
+    search <- T.getLine
 
-        -- select all tables starting with a B
-        tabs_with_B = juliusToRTable $
-                EtlMapStart
-                :-> (EtlR $
-                        ROpStart                            
-                        :. (Filter (From $ Tab src_DBTab) $                 
-                                FilterBy (\t ->  let fstChar = Data.Text.take 1 $ fromJust $ toText (t <!> "TABLE_NAME") in fstChar == (pack "B"))
-                        )
-                        :. (Select ["OWNER", "TABLE_NAME"] $
-                            From Previous
-                        )
-                )
+    putStrLn "Give me the date in \"DD/MM/YYYY\" format: "
+    datestr <- Prelude.getLine
+        
 
-    putStrLn "\nThese are the tables that start with a \"B\":\n"
-
-    -- print source RTable first 100 rows
+    -- print source RTable first n rows
+    -- RTable A
+    resultRTab <- runJulius $ julExpr search datestr $ toRTable src_DBTab_MData srcCSV 
     printfRTable (  
-                    -- this is the equivalent when pinting on the screen to a list of columns in a SELECT clause in SQL
-                    genRTupleFormat ["OWNER", "TABLE_NAME"] genDefaultColFormatMap
-                 ) $ tabs_with_B
-```
+                    -- this is the equivalent when printing on the screen a list of columns, defined in a SELECT clause in SQL
+                    genRTupleFormat ["OWNER", "TABLE_NAME", "TABLESPACE_NAME", "STATUS", "NUM_ROWS", "BLOCKS", "LAST_ANALYZED"] genDefaultColFormatMap
+                 ) $ resultRTab  
 
-### Julius Tutorial 
+    -- save result to a CSV file
+    writeCSV "./app/result-data.csv" $ 
+                    fromRTable result_tab_MData resultRTab
+    where
+        julExpr srch dtstr rtab = 
+            EtlMapStart 
+                :-> (EtlR $
+                        ROpStart
+                        :.  (Filter (From $ Tab rtab) $
+                                FilterBy (\t -> case instrRText (RText srch) (t <!> "TABLE_NAME") of
+                                                    Just p  -> True
+                                                    Nothing -> False
+                                                &&
+                                                (t <!> "LAST_ANALYZED") >= (RTime $ toRTimestamp "DD/MM/YYYY" dtstr)
+                                         )
+                            )
+                    )
+```
+### Julius DSL Tutorial 
 We have written [a Julius tutorial](https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md) to help you get started with Julius DSL. 
 <a  name="howtorun"></a> 
 ### How to run
-Download or clone DBFunctor in a new directory, 
-```
-$ git clone https://github.com/nkarag/haskell-DBFunctor
-$ cd haskell-DBFunctor/
-```
-then run 
-```
-$ stack build --haddock
-```
-in order to build the code and generate the documentation with the [stack](https://docs.haskellstack.org/en/stable/README/) tool.
-In order, to use it in you own haskell app, you only need to import the Julius module (you dont have to import RTable.Core, because it is exported by Julius)
-```Haskell
-import Etl.Julius
-```
-Finally, for a successful build of your app, you must direct stack to treat it as a local package (Soon DBFunctor will be added to Hackage and you will not need to use it as a local package.). 
-So you have to include it in your stack.yaml file, as a local package that you want to link your code to. 
-```
-packages:
-- location: .
-- location: <path where DBFunctor package has been cloned>
-  extra-dep: true
-```
-And of course, you must not forget to add the dependency of your app to the DBFunctor package in your .cabal file
-```
-  build-depends:      ...
-                      , DBFunctor
+#### 1. Install Stack
+See [this](https://docs.haskellstack.org/en/stable/GUIDE/) guide for help. If you have stack already installed, then we suggest you run a `stack upgrade`, in order to update it to the latest version and avoid any error messages due to bugs.
+Then run a `stack update`, in order to update the package index.
+#### 2. Initiate a project
+`$ stack new myDBFunctorProject`
+#### 3. Start coding with DBFunctor
+Don't forget:
 
+ - to `import Etl.Julius` module
+ - to use GHC extension `{-# LANGUAGE OverloadedStrings #-}`, since DBFunctor uses `Text` in all of its basic data types, this extension is necessary if you want to assign string literal values to an `RDataType` (the type of a column in an `RTable`)
+#### 4. Declare dependency with DBFunctor package
+Edit your package.yaml (or project.cabal) file and add the dependency to the DBFunctor package
+```
+dependencies:
+- DBFunctor
+```
+Also, don't forget to add to your stack.yaml file the line:
+```
+   extra-deps:
+    - DBFunctor-0.1.0.0
+```
+#### 5. Build and run you project
+```
+$ stack build
+```
+Run
+``` 
+stack exec -- myDBFunctorProject-exe
 ```
