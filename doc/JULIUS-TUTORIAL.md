@@ -42,7 +42,7 @@
 
 <a name="introduction"></a>
 ## Introduction  
-__Julius__ is a type-level *Embedded Domain Specific Language (EDSL)* for ETL data processing in Haskell.  Julius enables us to express complex data transformation flows (i.e., an arbitrary combination of ETL operations) in a more friendly manner (a __Julius Expression__), with plain Haskell code (no special language for ETL scripting required).
+__[Julius](https://hackage.haskell.org/package/DBFunctor-0.1.0.0/docs/Etl-Julius.html)__ is a type-level *Embedded Domain Specific Language (EDSL)* for ETL data processing in Haskell.  Julius enables us to express complex data transformation flows (i.e., an arbitrary combination of ETL operations) in a more friendly manner (a __Julius Expression__), with plain Haskell code (no special language for ETL scripting required).
 It is an "embedded" DSL because it "lives" within Haskell code and is compiled with GHC as usual. It is not a different language requiring some special compiler/interpreter to work. 
 In fact, a *Julius Expression* is just a common Haskell data type. The whole syntax of the Julius language consists of nothing more than a series of Haskell data type definitions. These data types simply comprise the Julius language. A syntax error in the Julius language is just a data type construction error that can be caught by the compiler.
 In this tutorial, we will show the basics of Julius in order to help someone to get started. (See also the documentation of the **Etl.Julius** and **RTable.Core** **modules** of the **DBFunctor package** for more details on the data types and functions exposed). 
