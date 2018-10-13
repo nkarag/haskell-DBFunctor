@@ -4,10 +4,10 @@
 **[DBFunctor](https://hackage.haskell.org/package/DBFunctor)** is a [Haskell](https://haskell-lang.org/) library for *ETL/ELT[^1]* data processing of tabular data. What does this mean?
 It simply means that whenever you have a ***data analysis*, *data preparation*, or *data transformation* task** and you want to do it with Haskell type-safe code, that you enjoy, love and trust so much, now you can! 
 ### Main Features
- 1. **[Julius](https://hackage.haskell.org/package/DBFunctor-0.1.0.0/docs/Etl-Julius.html): A Type-Level Embedded Domain Specific (EDSL) Language for ETL**
+ 1. **[Julius](https://hackage.haskell.org/package/DBFunctor-0.1.0.0/docs/Etl-Julius.html) DSL: A Type-Level Embedded Domain Specific  Language (EDSL) for ETL**
 Provides an intuitive type-level Embedded Domain Specific (EDSL) Language called *Julius* for expressing complex data flows (i.e., ETL flows)  but also for performing SQL-like data analysis. For more info check this [Julius tutorial](https://github.com/nkarag/haskell-DBFunctor/blob/master/doc/JULIUS-TUTORIAL.md).
- 2. **Supports all known relational operations**
-Julius supports all known relational operations (selection, projection, inner/outer join, grouping, ordering, aggregation, set operations etc.)
+ 2. **Supports all known relational algrebra operations**
+Julius supports all known relational algebra operations (selection, projection, inner/outer join, grouping, ordering, aggregation, set operations etc.)
  3. **Provides the ETL Mapping and other typical ETL constructs and operations**
 Julius implements typical ETL constructs such the *Column Mapping* and the *ETL Mapping*.
  4. **Applicable to all kinds of tabular data**
