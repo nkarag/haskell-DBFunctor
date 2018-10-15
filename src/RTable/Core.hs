@@ -288,6 +288,7 @@ module RTable.Core (
     ,ColumnName
     ,RTableName
     ,ColumnDType (..)
+    ,Delimiter
 
     -- * Type Classes for "Tabular Data"
     ,RTabular (..)
@@ -305,7 +306,8 @@ module RTable.Core (
     ,raggCount
     ,raggAvg
     ,raggMax
-    ,raggMin    
+    ,raggMin
+    ,raggStrAgg    
 
     -- ** Predicates
     ,RPredicate
@@ -1905,6 +1907,50 @@ raggGenericAgg aggf src trg = RAggOperation {
                 ,targetCol = trg                                 
                 ,aggFunc = \rtab -> createRtuple [(trg, aggf src rtab)]  
         }
+
+type Delimiter = String
+
+-- | The StrAgg aggregate operation
+-- This is known as \"string_agg\"" in Postgresql and \"listagg\" in Oracle.
+-- It aggregates the values of a text 'RDataType' column with a specified delimiter
+raggStrAgg ::
+        ColumnName -- ^ source column
+    ->  ColumnName -- ^ target column
+    ->  Delimiter  -- ^ delimiter string 
+    ->  RAggOperation
+raggStrAgg src trg delimiter =  RAggOperation {
+                 sourceCol = src
+                ,targetCol = trg                       
+                ,aggFunc = \rtab -> createRtuple [(trg, strAggFold delimiter src rtab)]  
+        }
+
+-- | A helper function that implements the basic fold for the raggStrAgg aggregation        
+strAggFold :: Delimiter -> AggFunction
+strAggFold dlmt col rtab = 
+    rdatatypeFoldr' ( \rtup accValue -> 
+        if isNotNull (rtup <!> col)  && (isNotNull accValue)
+            then
+                rtup <!> col `rdtappend` (RText delimiter) `rdtappend` accValue
+            else
+                --if (getRTupColValue src) rtup == Null && accValue /= Null 
+                if isNull (rtup <!> col) && (isNotNull accValue)
+                    then
+                        accValue  -- ignore Null value
+                    else
+                        --if (getRTupColValue src) rtup /= Null && accValue == Null 
+                        if isNotNull (rtup <!> col) && (isNull accValue)
+                            then
+                                case isText (rtup <!> col) of
+                                    True ->  (rtup <!> col) 
+                                    False -> Null
+                            else
+                                Null -- agg of Nulls is Null
+                    )
+                    Null
+                    rtab
+    where
+        delimiter = pack dlmt -- convert String to Text
+
 
 -- | The Sum aggregate operation
 raggSum :: 

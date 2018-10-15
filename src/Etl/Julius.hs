@@ -678,7 +678,9 @@ data AggOp =
             |   Min ColumnName AsColumn
             |   Max ColumnName AsColumn
             |   Avg ColumnName AsColumn      -- ^ Average aggregation
+            |   StrAgg ColumnName AsColumn Delimiter  -- ^ String aggregation
             |   GenAgg ColumnName AsColumn AggBy    -- ^ A custom aggregate operation
+
 
 -- | Julius Clause to provide a custom aggregation function
 data AggBy = AggBy AggFunction
@@ -1302,11 +1304,12 @@ aggOpExprToAggOp :: [AggOp] -> [RAggOperation]
 aggOpExprToAggOp [] = []
 aggOpExprToAggOp (aggopExpr : rest) = 
     let aggop = case aggopExpr of
-                    Sum srcCol (As trgCol)      -> (raggSum srcCol trgCol)
-                    Count srcCol (As trgCol)    -> (raggCount srcCol trgCol)
-                    Min srcCol (As trgCol)      -> (raggMin srcCol trgCol)
-                    Max srcCol (As trgCol)      -> (raggMax srcCol trgCol)
-                    Avg srcCol (As trgCol)      -> (raggAvg srcCol trgCol)
+                    Sum srcCol (As trgCol)                  -> (raggSum srcCol trgCol)
+                    Count srcCol (As trgCol)                -> (raggCount srcCol trgCol)
+                    Min srcCol (As trgCol)                  -> (raggMin srcCol trgCol)
+                    Max srcCol (As trgCol)                  -> (raggMax srcCol trgCol)
+                    Avg srcCol (As trgCol)                  -> (raggAvg srcCol trgCol)
+                    StrAgg srcCol (As trgCol) delimiter     -> (raggStrAgg srcCol trgCol delimiter)
                     GenAgg srcCol (As trgCol) (AggBy aggf)  -> (raggGenericAgg aggf srcCol trgCol)
     in aggop : (aggOpExprToAggOp rest)
 

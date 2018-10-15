@@ -906,6 +906,31 @@ main = do
     -- T.printRTable rtabNew18
     T.printfRTable (genRTupleFormat [ "Name", "ListAggName", "CountName"] genDefaultColFormatMap) $ rtabNew18
 
+    putStrLn "### Test StrAgg aggregation"
+
+    rtabNew19 <- runJulius $
+            EtlMapStart
+            :-> (EtlR $
+                    ROpStart
+                    :.  (GroupBy ["Name"] -- , "MyTime"] 
+                            (AggOn [    {-Sum "Number" $ As "SumNumber"
+                                        ,Count "Name" $ As "CountName"
+                                        --,Avg "Number" $ As "AvgNumber" 
+                                        ,Sum "Name" $ As "SumName"
+                                        ,Count "DNumber" $ As "CountDNumber"
+                                        ,Max "DNumber" $ As "maxDNumber"
+                                        --,Max "Number" $ As "maxNumber"
+                                        ,Max "Name" $ As "maxName"
+                                        ,-}
+                                        Count "Name" $ As "CountName"
+                                        ,StrAgg "Name" (As "ListAggName") ";" 
+                                    ]  $ From $ Tab rtabNew)
+                            $ GroupOn (\t1 t2 ->  t1!"Name" == t2!"Name" )) -- && t1!"MyTime" == t2!"MyTime"))
+                )
+
+    -- T.printRTable rtabNew18
+    T.printfRTable (genRTupleFormat [ "Name", "ListAggName", "CountName"] genDefaultColFormatMap) $ rtabNew19
+
 
     where
         myListAgg :: Text -> AggFunction
