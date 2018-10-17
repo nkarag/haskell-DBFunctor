@@ -712,7 +712,7 @@ main = do
 -- Test Aggregation
     -- 
     let rtabNew16 = T.rAgg [T.raggSum "Number" "SumNumber" 
-                            , T.raggCount "Number" "CountNumber"
+                            , T.raggCount "Number" "CountNumber"                            
                             , T.raggAvg "Number" "AvgNumber" 
                             , T.raggSum "Name" "SumName"
                             ,T.raggMax "DNumber" "maxDNumber"
@@ -722,6 +722,8 @@ main = do
                             ,T.raggMin "Number" "minNumber"
                             ,T.raggMin "Name" "minName"
                             ,T.raggAvg "Name" "AvgName"
+                            ,T.raggCountDist "Number" "CountNumberDist"                            
+                            ,T.raggCountDist "Name" "CountNameDist"                            
                          ] rtabNew
         rtmdata16 = T.createRTableMData ( "TestTable16", 
                                          [  --("Name", T.Varchar),
@@ -738,6 +740,8 @@ main = do
                                             ,("minNumber", T.Integer)
                                             ,("minName", T.Varchar)
                                             ,("AvgName", T.Double)
+                                            ,("CountNumberDist", T.Integer)
+                                            ,("CountNameDist", T.Integer)
                                             --,("NewNumber", T.Integer)
                                          ]                                       
                                        )   
@@ -761,7 +765,10 @@ main = do
                                     ,Min "DNumber" $ As "minDNumber"
                                     ,Min "Number" $ As "minNumber"
                                     ,Min "Name" $ As "minName"
-                                    ,Avg "Name" $ As "AvgName"] $ From $ Tab rtabNew)
+                                    ,Avg "Name" $ As "AvgName"
+                                    ,CountDist "Number" $ As "CountNumberDist"
+                                    ,CountDist "Name" $ As "CountNameDist"
+                                ] $ From $ Tab rtabNew)
                 )
 
     writeResult fo "_t16.csv" rtmdata16 rtabNew16

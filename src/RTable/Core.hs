@@ -304,6 +304,8 @@ module RTable.Core (
     ,raggGenericAgg
     ,raggSum
     ,raggCount
+    ,raggCountDist
+    ,raggCountStar
     ,raggAvg
     ,raggMax
     ,raggMin
@@ -1989,6 +1991,7 @@ sumFold src rtab =
 
 
 -- | The Count aggregate operation
+-- Count aggregation (no distinct)
 raggCount :: 
         ColumnName -- ^ source column
     ->  ColumnName -- ^ target column
@@ -1998,6 +2001,7 @@ raggCount src trg = RAggOperation {
                 ,targetCol = trg
                 ,aggFunc = \rtab -> createRtuple [(trg, countFold src rtab)]  
         }
+
 
 -- | A helper function in raggCount that implements the basic fold for Count aggregation        
 countFold :: AggFunction -- ColumnName -> ColumnName -> RTable -> RDataType
@@ -2020,6 +2024,55 @@ countFold src rtab =
                                                 else
                                                     Null -- agg of Nulls is Null
              ) (Null) rtab
+
+
+-- | The CountStar aggregate operation 
+-- Count aggregation (distinct)
+raggCountStar ::         
+        ColumnName -- ^ target column
+    ->  RAggOperation
+raggCountStar src  = undefined
+
+-- | The CountDist aggregate operation 
+-- Count aggregation (distinct)
+raggCountDist :: 
+        ColumnName -- ^ source column
+    ->  ColumnName -- ^ target column
+    ->  RAggOperation
+raggCountDist src trg = RAggOperation {
+                 sourceCol = src
+                ,targetCol = trg
+                ,aggFunc = \rtab -> createRtuple [(trg, countDistFold src rtab)]  
+        }
+
+-- | A helper function in raggCount that implements the basic fold for Count aggregation        
+countDistFold :: AggFunction -- ColumnName -> ColumnName -> RTable -> RDataType
+countDistFold src rtab = 
+    let
+        -- change the input rtable to fold, to be the distinct list of values
+        -- implement it with a group by on the src column
+        rtabDist = runGroupBy   (\t1 t2 -> t1 <!> src == t2 <!> src)
+                                [raggCount src "dummy"]  -- this will be omitted anyway
+                                [src]
+                                rtab
+    in V.foldr' ( \rtup accValue ->                                                                     
+                            --if (getRTupColValue src) rtup /= Null && accValue /= Null
+                            if (isNotNull $ (getRTupColValue src) rtup)  && (isNotNull accValue)  
+                                then
+                                    RInt 1 + accValue
+                                else
+                                    --if (getRTupColValue src) rtup == Null && accValue /= Null 
+                                    if (isNull $ (getRTupColValue src) rtup) && (isNotNull accValue)  
+                                        then
+                                            accValue  -- ignore Null value
+                                        else
+                                            --if (getRTupColValue src) rtup /= Null && accValue == Null 
+                                            if (isNotNull $ (getRTupColValue src) rtup) && (isNull accValue)
+                                                then
+                                                    RInt 1  -- ignore so far Null agg result
+                                                else
+                                                    Null -- agg of Nulls is Null
+             ) (Null) rtabDist
 
 
 -- | The Average aggregate operation

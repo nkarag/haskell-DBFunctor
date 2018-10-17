@@ -1,2 +1,2 @@
-SumNumber,CountNumber,AvgNumber,SumName,maxDNumber,maxNumber,maxName,minDNumber,minNumber,minName,AvgName
-150,9,16.67,,3.00,50,Χ,1.00,10,Karagiannidis,
+SumNumber,CountNumber,AvgNumber,SumName,maxDNumber,maxNumber,maxName,minDNumber,minNumber,minName,AvgName,CountNumberDist,CountNameDist
+150,9,16.67,,3.00,50,Χ,1.00,10,Karagiannidis,,3,6

@@ -672,9 +672,9 @@ data Aggregate = AggOn [AggOp] FromRTable
 -- | These are the available aggregate operation clauses
 data AggOp = 
                 Sum ColumnName AsColumn      
-            |   Count ColumnName AsColumn    -- ^ Count aggregation (no distinct)
-            -- |   CountDist ColumnName AsColumn    -- ^ Count distinct aggregation. Returns the distinct number of values for this column.
-            -- |   CountStar AsColumn              -- ^ Returns the number of 'RTuple's in the 'RTable' (i.e., @count(*)@ in SQL)           
+            |   Count ColumnName AsColumn     -- ^ Count aggregation (no distinct)
+            |   CountDist ColumnName AsColumn -- ^ Count distinct aggregation (i.e., @count(distinct col)@ in SQL). Returns the distinct number of values for this column.
+            |   CountStar AsColumn            -- ^ Returns the number of 'RTuple's in the 'RTable' (i.e., @count(*)@ in SQL)           
             |   Min ColumnName AsColumn
             |   Max ColumnName AsColumn
             |   Avg ColumnName AsColumn      -- ^ Average aggregation
@@ -1306,6 +1306,8 @@ aggOpExprToAggOp (aggopExpr : rest) =
     let aggop = case aggopExpr of
                     Sum srcCol (As trgCol)                  -> (raggSum srcCol trgCol)
                     Count srcCol (As trgCol)                -> (raggCount srcCol trgCol)
+                    CountDist srcCol (As trgCol)            -> (raggCountDist srcCol trgCol)
+                    CountStar (As trgCol)                   -> (raggCountStar trgCol)                                        
                     Min srcCol (As trgCol)                  -> (raggMin srcCol trgCol)
                     Max srcCol (As trgCol)                  -> (raggMax srcCol trgCol)
                     Avg srcCol (As trgCol)                  -> (raggAvg srcCol trgCol)
@@ -1313,7 +1315,6 @@ aggOpExprToAggOp (aggopExpr : rest) =
                     GenAgg srcCol (As trgCol) (AggBy aggf)  -> (raggGenericAgg aggf srcCol trgCol)
     in aggop : (aggOpExprToAggOp rest)
 
-            
  
 -- and then run the produced ETLMapping
 finalRTable = etl $ evalJulius myEtlExpr
