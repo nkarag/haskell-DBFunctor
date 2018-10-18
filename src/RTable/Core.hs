@@ -1966,7 +1966,7 @@ raggSum src trg = RAggOperation {
         }
 
 -- | A helper function in raggSum that implements the basic fold for sum aggregation        
-sumFold :: AggFunction --ColumnName -> ColumnName -> RTable -> RDataType
+sumFold :: AggFunction -- ColumnName -> RTable -> RDataType
 sumFold src rtab =         
     V.foldr' ( \rtup accValue ->                                                                     
                     --if (getRTupColValue src) rtup /= Null && accValue /= Null
@@ -2004,7 +2004,7 @@ raggCount src trg = RAggOperation {
 
 
 -- | A helper function in raggCount that implements the basic fold for Count aggregation        
-countFold :: AggFunction -- ColumnName -> ColumnName -> RTable -> RDataType
+countFold :: AggFunction -- ColumnName -> RTable -> RDataType
 countFold src rtab =         
     V.foldr' ( \rtup accValue ->                                                                     
                             --if (getRTupColValue src) rtup /= Null && accValue /= Null
@@ -2027,14 +2027,22 @@ countFold src rtab =
 
 
 -- | The CountStar aggregate operation 
--- Count aggregation (distinct)
+--  Returns the number of 'RTuple's in the 'RTable' (i.e., @count(*)@ in SQL) 
 raggCountStar ::         
         ColumnName -- ^ target column
     ->  RAggOperation
-raggCountStar src  = undefined
+raggCountStar trg  = RAggOperation {
+                sourceCol = ""  -- no source column required
+                ,targetCol = trg
+                ,aggFunc = \rtab -> createRtuple [(trg, countStarFold rtab)]  
+        }
+-- | A helper function in raggCountStar that implements the basic fold for CountStar aggregation        
+countStarFold :: RTable -> RDataType
+countStarFold rtab = RInt $ toInteger $ Data.List.length $ rtableToList rtab
+
 
 -- | The CountDist aggregate operation 
--- Count aggregation (distinct)
+-- Count distinct aggregation (i.e., @count(distinct col)@ in SQL). Returns the distinct number of values for this column.
 raggCountDist :: 
         ColumnName -- ^ source column
     ->  ColumnName -- ^ target column
@@ -2045,7 +2053,7 @@ raggCountDist src trg = RAggOperation {
                 ,aggFunc = \rtab -> createRtuple [(trg, countDistFold src rtab)]  
         }
 
--- | A helper function in raggCount that implements the basic fold for Count aggregation        
+-- | A helper function in raggCountDist that implements the basic fold for CountDist aggregation        
 countDistFold :: AggFunction -- ColumnName -> ColumnName -> RTable -> RDataType
 countDistFold src rtab = 
     let

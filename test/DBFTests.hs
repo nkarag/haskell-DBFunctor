@@ -723,7 +723,8 @@ main = do
                             ,T.raggMin "Name" "minName"
                             ,T.raggAvg "Name" "AvgName"
                             ,T.raggCountDist "Number" "CountNumberDist"                            
-                            ,T.raggCountDist "Name" "CountNameDist"                            
+                            ,T.raggCountDist "Name" "CountNameDist"
+                            ,T.raggCountStar "CountStar"                           
                          ] rtabNew
         rtmdata16 = T.createRTableMData ( "TestTable16", 
                                          [  --("Name", T.Varchar),
@@ -742,6 +743,7 @@ main = do
                                             ,("AvgName", T.Double)
                                             ,("CountNumberDist", T.Integer)
                                             ,("CountNameDist", T.Integer)
+                                            ,("CountStar", T.Integer)
                                             --,("NewNumber", T.Integer)
                                          ]                                       
                                        )   
@@ -768,12 +770,14 @@ main = do
                                     ,Avg "Name" $ As "AvgName"
                                     ,CountDist "Number" $ As "CountNumberDist"
                                     ,CountDist "Name" $ As "CountNameDist"
+                                    ,CountStar $ As "CountStar"
                                 ] $ From $ Tab rtabNew)
                 )
 
     writeResult fo "_t16.csv" rtmdata16 rtabNew16
     writeResult fo "_t16_J.csv" rtmdata16 rtabNew16_J
 
+    T.printRTable rtabNew16
     T.printRTable rtabNew16_J
 
 -- Test GroupBy
