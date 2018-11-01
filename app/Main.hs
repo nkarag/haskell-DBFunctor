@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- :set -XOverloadedStrings
+
 module Main where
 
 -- import  RTable.Core         (RTableMData ,ColumnDType (..) ,createRTableMData, restrictNrows, printfRTable, genRTupleFormat, genDefaultColFormatMap, toText, (<!>))

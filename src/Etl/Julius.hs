@@ -471,8 +471,9 @@ grouped expenses ("expGroupbyCategory").
 
 -}
 
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings      #-}
 -- :set -XOverloadedStrings
+
 --{-# LANGUAGE OverloadedRecordFields #-}
 --{-# LANGUAGE  DuplicateRecordFields #-}
 
@@ -493,6 +494,11 @@ module Etl.Julius (
     ,TabExpr (..)          
     ,RemoveSrcCol (..)    
     ,ByPred (..)    
+    ,SetColumns (..)
+    ,IntoClause (..)
+    ,InsertSource (..)
+    ,ValuesClause (..)
+    ,TabSource (..)
     -- ** The Relational Operation Clause
     ,ROpExpr(..)    
     ,RelationalOp (..)    
@@ -637,12 +643,43 @@ data RelationalOp =
         |   RJoin TabLiteral TabExpr TabExprJoin            -- ^ Right Join clause, based on an arbitrary join predicate function - not just equi-join - ('RJoinPredicate')
         |   FOJoin TabLiteral TabExpr TabExprJoin           -- ^ Full Outer Join clause, based on an arbitrary join predicate function - not just equi-join - ('RJoinPredicate')
         |   TabLiteral `Intersect` TabExpr                  -- ^ Intersection clause
-        |   TabLiteral `Union` TabExpr                      -- ^ Union clause
+        |   TabLiteral `Union` TabExpr                      -- ^ Union clause. Note this operation eliminates dublicate 'RTuples'
+        |   TabLiteral `UnionAll` TabExpr                   -- ^ Union All clause. It is a Union operation without dublicate 'RTuple' elimination.
         |   TabLiteral `Minus` TabExpr                      -- ^ Minus clause (set Difference operation)
         |   TabExpr `MinusP` TabLiteral                     --  ^ This is a Minus operation to be used when the left table must be the 'Previous' value.
         |   GenUnaryOp OnRTable ByGenUnaryOperation         -- ^ This is a generic unary operation on a RTable ('UnaryRTableOperation'). It is used to define an arbitrary unary operation on an 'RTable'
         |   GenBinaryOp TabLiteral TabExpr ByGenBinaryOperation -- ^ This is a generic binary operation on a RTable ('BinaryRTableOperation'). It is used to define an arbitrary binary operation on an 'RTable'
         |   OrderBy [(ColumnName, OrderingSpec)] FromRTable     -- ^ Order By clause.
+        
+        {--  DML Section  -}
+        |   Update TabExpr SetColumns ByPred                -- ^ Update an 'RTable'. 
+                                                            -- Please note that this is an __immutable__ implementation of an 'RTable' update. This simply means that
+                                                            -- the update operation returns a new 'RTable' that includes all the 'RTuple's of the original 'RTable', both the ones
+                                                            -- that have been updated and the others that have not. So, the original 'RTable' remains unchanged and no update in-place
+                                                            -- takes place whatsoever.
+                                                            -- Moreover, if we have multiple threads updating an 'RTable', due to immutability, each thread \"sees\" its own copy of
+                                                            -- the 'RTable' and thus there is no need for locking the updated 'RTuple's, as happens in a common RDBMS.
+        |   Insert IntoClause                               -- ^ Insert Operation. It can insert into an 'RTable' a single 'RTuple' or a whole 'RTable'. The latter is the equivalent
+                                                            -- of an @INSERT INTO SELECT@ clause in SQL. Since, an 'RTable' can be the result of a Julius expression (playing the
+                                                            -- role of a subquery within the Insert clause, in this case).
+                                                            -- Please note that this is an __immutable__ implementation of an 'RTable' insert.
+                                                            -- This simply means that the insert operation returns a new 'RTable' and does not
+                                                            -- affect the original 'RTable'.                                                            
+-- | Insert Into subclasue
+data IntoClause = Into TabExpr InsertSource
+
+-- | Subclause on 'Insert' clause. Defines the source of the insert operation.
+-- The @Values@ branch is used for inserting a singl 'RTuple', while the @RTuples@ branch
+-- is used for inserting a whole 'RTable', typically derived as the result of a Julius expression.
+-- The former is similar in concept with an @INSERT INTO VALUES@ SQL clause, and the latter is similar 
+-- in concept with an @INSERT INTO SELECT@ SQL clause.
+data InsertSource = Values ValuesClause | RTuples TabSource
+
+-- | This subclause refers to the source 'RTable' that will feed an 'Insert' operation
+data TabSource = TabSrc RTable 
+
+-- | Subclause on 'Insert' clause. Defines the source 'RTuple' of the insert operation.
+type ValuesClause = [(ColumnName, RDataType)]
 
 -- | It is used to define an arbitrary unary operation on an 'RTable'
 data ByGenUnaryOperation = ByUnaryOp UnaryRTableOperation         
@@ -691,6 +728,9 @@ data AsColumn = As ColumnName
 
 -- | A grouping predicate clause. It defines an arbitrary function ('RGroupPRedicate'), which drives when two 'RTuple's should belong in the same group.
 data GroupOnPred = GroupOn RGroupPredicate
+
+-- | The Set sub-clause of an 'Update' 'RTable' clause. It specifies each column to be updated along with the new value.
+data SetColumns = Set [(ColumnName, RDataType)]
 
 -----------------------
 -- Example:
@@ -1239,6 +1279,20 @@ evalROpExpr (restExpression :. rop) =
                     -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
                     ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)
 
+        UnionAll (TabL tabl) tabExpr ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = runUnionAll tabl -- this returns a RTable -> RTable function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression                                
+
+            -- the current RCombinedOp is porduced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)
+
         Minus (TabL tabl) tabExpr ->
             let -- create current function to be included in a RCombinedOp operation 
                 currfunc :: UnaryRTableOperation
@@ -1297,6 +1351,51 @@ evalROpExpr (restExpression :. rop) =
                     RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
                     -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
                     ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)
+
+        -- this is the RTable update operation
+        Update tabExpr (Set colValuePairs) (FilterBy filterPred) ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = updateRTab colValuePairs filterPred -- this returns an RTable -> RTable function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression
+
+            -- the current RCombinedOp is produced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)                    
+
+        -- this is the RTable insert values operation (inserts a single RTuple)
+        Insert (Into tabExpr (Values colValuePairs)) ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = insertAppendRTab (createRtuple colValuePairs) -- this returns an RTable -> RTable function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression
+
+            -- the current RCombinedOp is produced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)                    
+
+        -- this is the RTable insert rtuples operation (inserts a whole rtable)
+        Insert (Into tabExpr (RTuples (TabSrc rtabsrc))) ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = insertRTabToRTab rtabsrc -- this returns an RTable -> RTable function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression
+
+            -- the current RCombinedOp is produced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)                    
 
 
 -- | turns the  list of agg operation expressions to a list of RAggOperation data type

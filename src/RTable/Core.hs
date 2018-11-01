@@ -282,8 +282,9 @@ module RTable.Core (
     ,RTimestamp (..)
     -- ** RTable Metadata Data Types
     ,RTableMData (..)
-    ,RTupleMData (..)
-    ,ColumnInfo (..)    
+    ,RTupleMData (..)    
+    ,ColumnInfo (..) 
+    ,ColumnOrder   
     ,Name
     ,ColumnName
     ,RTableName
@@ -404,6 +405,7 @@ module RTable.Core (
     ,foJ
     ,joinRTuples    
     ,runUnion
+    ,runUnionAll
     ,u
     ,runIntersect
     ,i
@@ -468,15 +470,19 @@ module RTable.Core (
     ,toText
     ,fromText    
     -- ** Container Functions
-    ,rtabMap
+    ,rtabMap    
     ,rtabFoldr'
     ,rtabFoldl'
+    ,rtupleMap
+    ,rtupleMapWithKey
     ,rdatatypeFoldr'
     ,rdatatypeFoldl'
     -- * Modify RTable (DML)
     ,insertAppendRTab    
     ,insertPrependRTab
+    ,insertRTabToRTab
     ,updateRTab  
+    ,updateRTuple
     ,upsertRTuple    
     -- * Create/Alter RTable (DDL)
     ,emptyRTable
@@ -491,16 +497,23 @@ module RTable.Core (
     ,createRDataType
     -- * Metadata Functions
     ,createRTableMData    
-    ,getColumnNamesfromRTab
-    ,getColumnNamesfromRTuple
+    ,getColumnNamesFromRTab
+    ,getColumnNamesFromRTuple
+    ,getColumnInfoFromRTab
+    ,getColumnInfoFromRTuple
+    ,getTheType
     ,listOfColInfoRDataType
     ,toListColumnName
     ,toListColumnInfo
+    ,rtabsSameStructure
+    ,rtuplesSameStructure
+    ,getUniqueColumnNamesAfterJoin
     -- * Exceptions
     ,ColumnDoesNotExist (..)
+    ,ConflictingRTableStructures (..)
+    ,EmptyInputStringsInToRTimestamp (..)    
     ,UnsupportedTimeStampFormat (..)
     --,RTimestampFormatLengthMismatch (..)
-    ,EmptyInputStringsInToRTimestamp (..)
 
     -- * RTable IO Operations
     -- ** RTable Printing and Formatting
@@ -596,7 +609,7 @@ import qualified Data.Typeable as TB --(typeOf, Typeable)
 import qualified Data.Dynamic as D  -- https://hackage.haskell.org/package/base-4.9.1.0/docs/Data-Dynamic.html
 
 -- Data.List
-import Data.List (last, all, elem, break, span, map, null, zip, zipWith, elemIndex, sortOn, union, intersect, (\\), take, length, repeat, groupBy, sort, sortBy, foldl', foldr, foldr1, foldl',head, findIndex, tails, isPrefixOf)
+import Data.List (find, filter, last, all, elem, break, span, map, null, zip, zipWith, elemIndex, sortOn, union, intersect, (\\), take, length, repeat, groupBy, sort, sortBy, foldl', foldr, foldr1, foldl',head, findIndex, tails, isPrefixOf)
 -- Data.Maybe
 import Data.Maybe (fromJust, fromMaybe)
 -- Data.Char
@@ -720,7 +733,7 @@ type RTableName = Name
 
 -- | This is used only for metadata purposes (see 'ColumnInfo'). The actual data type of a value is an RDataType
 -- The Text component of Date and Timestamp data constructors is the date format e.g., "DD\/MM\/YYYY", "DD\/MM\/YYYY HH24:MI:SS"
-data ColumnDType = Integer | Varchar | Date Text | Timestamp Text | Double deriving (Show, Eq)
+data ColumnDType = UknownType | Integer | Varchar | Date Text | Timestamp Text | Double  deriving (Show, Eq)
 
 -- | Definition of the Relational Data Type. This is the data type of the values stored in each 'RTable'.
 -- This is a strict data type, meaning whenever we evaluate a value of type 'RDataType', 
@@ -766,7 +779,7 @@ instance Eq RDataType where
     -- RInt i == _ = False
     RText t1 == RText t2 = t1 == t2
     -- RText t1 == _ = False
-    RDate t1 s1 == RDate t2 s2 = (t1 == t1) && (s1 == s2)
+    RDate t1 s1 == RDate t2 s2 = toRTimestamp (unpack s1) (unpack t1) == toRTimestamp (unpack s2) (unpack t2)   -- (t1 == t1) && (s1 == s2)
     -- RDate t1 s1 == _ = False
     RTime t1 == RTime t2 = t1 == t2
     -- RTime t1 == _ = False
@@ -785,18 +798,18 @@ instance Eq RDataType where
     x /= y = not (x == y) 
 
 -- Need to explicitly specify due to "Null logic" (see Eq)
-instance Ord RDataType where
-    Null <= _ = False
-    _ <= Null = False
+instance Ord RDataType where    
+    compare Null _ = GT     --    Null <= _ = False
+    compare _ Null = GT     --  _ <= Null = False
     -- Null <= Null = False -- Comment out due to redundant warning
-    RInt i1 <= RInt i2 = i1 <= i2
-    RText t1 <= RText t2 = t1 <= t2
-    RDate t1 s1 <= RDate t2 s2 = (t1 <= t1) && (s1 == s2)
-    RTime t1 <= RTime t2 = t1 <= t2
-    RTime t1 <= _ = False
-    RDouble d1 <= RDouble d2 = d1 <= d2
+    compare (RInt i1) (RInt i2) = compare i1 i2                                             --  RInt i1 <= RInt i2 = i1 <= i2
+    compare (RText t1) (RText t2) = compare t1 t2                                           --  RText t1 <= RText t2 = t1 <= t2
+    compare (RDate t1 s1) (RDate t2 s2) = compare (toRTimestamp (unpack s1) (unpack t1)) (toRTimestamp (unpack s2) (unpack t2)) --  RDate t1 s1 <= RDate t2 s2 = (t1 <= t1) && (s1 == s2)
+    compare (RTime t1) (RTime t2) = compare t1 t2                                           --  RTime t1 <= RTime t2 = t1 <= t2
+    -- RTime t1 <= _ = False
+    compare (RDouble d1) (RDouble d2) = compare d1 d2                                       --  RDouble d1 <= RDouble d2 = d1 <= d2
     -- anything else is just False
-    _ <= _ = False
+    compare _ _ = GT                                                                        --  _ <= _ = False
 
 
 -- | Use this function to compare an RDataType with the Null value because due to Null logic
@@ -868,18 +881,38 @@ instance Fractional RDataType where
 stdDateFormat = "DD/MM/YYYY"
 
 -- | Get the Column Names of an RTable
-getColumnNamesfromRTab :: RTable -> [ColumnName]
-getColumnNamesfromRTab rtab = getColumnNamesfromRTuple $ headRTup rtab
+getColumnNamesFromRTab :: RTable -> [ColumnName]
+getColumnNamesFromRTab rtab = getColumnNamesFromRTuple $ headRTup rtab
+
+-- | Returns the Column Names of an RTuple
+getColumnNamesFromRTuple :: RTuple -> [ColumnName]
+getColumnNamesFromRTuple t = HM.keys t
+
+-- Get the column metadata of an 'RTable'
+getColumnInfoFromRTab :: RTable -> [ColumnInfo]
+getColumnInfoFromRTab rtab = getColumnInfoFromRTuple $ headRTup rtab
+
+-- Get the column metadata of an 'RTuple'
+getColumnInfoFromRTuple :: RTuple -> [ColumnInfo]
+getColumnInfoFromRTuple  t = 
+   HM.elems $ HM.mapWithKey (\c v -> ColumnInfo { name = c, dtype = getTheType v}) t 
+
+-- | Take a column value and return its type
+getTheType :: RDataType -> ColumnDType
+getTheType v = 
+    case v of
+        RInt _                           ->  Integer
+        RText _                          ->  Varchar
+        RDate {rdate = d, dtformat = f}  ->  Date f 
+        RTime _                          ->  Timestamp (pack stdTimestampFormat)
+        RDouble _                        ->  Double
+        Null                             ->  UknownType
 
 -- | Get the first RTuple from an RTable
 headRTup ::
         RTable
     ->  RTuple
 headRTup = V.head    
-
--- | Returns the Column Names of an RTuple
-getColumnNamesfromRTuple :: RTuple -> [ColumnName]
-getColumnNamesfromRTuple t = HM.keys t
 
 -- | Returns the value of an RTuple column based on the ColumnName key
 --   if the column name is not found, then it returns Nothing
@@ -1039,16 +1072,6 @@ decodeRTable cName searchVal returnVal defaultVal ignoreInd tab =
         then emptyRTable
         else
             V.map (\t -> upsertRTuple cName (decodeColValue cName searchVal returnVal defaultVal ignoreInd t) t) tab   
-
--- | Upsert (update/insert) an RTuple at a specific column specified by name with a value
--- If the cname key is not found then the (columnName, value) pair is inserted. If it exists
--- then the value is updated with the input value.
-upsertRTuple ::
-           ColumnName  -- ^ key where the upset will take place
-        -> RDataType   -- ^ new value
-        -> RTuple      -- ^ input RTuple
-        -> RTuple      -- ^ output RTuple
-upsertRTuple cname newVal tupsrc = HM.insert cname newVal tupsrc
 
 -- newtype NumericRDT = NumericRDT { getRDataType :: RDataType } deriving (Eq, Ord, Read, Show, Num)
 
@@ -1508,7 +1531,7 @@ isText (RText t) = True
 isText _ = False
 
 -- | Standard timestamp format. For example: \"DD/MM/YYYY HH24:MI:SS\"
-stdTimestampFormat = "DD/MM/YYYY HH24:MI:SS"
+stdTimestampFormat = "DD/MM/YYYY HH24:MI:SS" :: String
 
 -- | rTimeStampToText: converts an RTimestamp value to RText
 -- Valid input formats are:
@@ -1666,12 +1689,30 @@ data ColumnInfo =   ColumnInfo {
                                           --   Since an RTuple is implemented as a HashMap ColumnName RDataType, ordering of columns has no meaning.
                                           --   However, with this columns we can "pretend" that there is a fixed column order in each RTuple.
                         ,dtype :: ColumnDType
-                    } deriving (Show, Eq)
+                    } deriving (Show,Eq)
 
+-- | Define equality for two 'ColumnInfo' structures
+-- For two column two have \"equal structure\" they must have the same name
+-- and the same type. If one of the two (or both) have an 'UknownType', then they are still considered of equal structure.
+{-
+instance Eq (ColumnInfo) where
+    (==) ci1 ci2 = 
+        if (name ci1) == (name ci2)
+            then
+                if ((dtype ci1) == (dtype ci2))
+                    ||
+                    (dtype ci1 == UknownType)
+                    ||
+                    (dtype ci2 == UknownType)
+                    then True
+                    else False
+            else
+                False
+-}
 
--- | Creates a list of the form [(ColumnInfo, RDataType)]  from a list of ColumnInfo and an RTuple. The returned list respects the order of the [ColumnInfo]
-    -- Prelude.zip listOfColInfo (Prelude.map (snd) $ HM.toList rtup)  -- this code does NOT guarantee that HM.toList will return the same column order as [ColumnInfo]
-listOfColInfoRDataType :: [ColumnInfo] -> RTuple -> [(ColumnInfo, RDataType)]  -- this code does guarantees that RDataTypes will be in the same column order as [ColumnInfo], i.e., the correct RDataType for the correct column
+-- | Creates a list of the form [(ColumnInfo, RDataType)]  from a list of ColumnInfo and an RTuple. The returned list respects the order of the [ColumnInfo].
+-- It guarantees that RDataTypes will be in the same column order as [ColumnInfo], i.e., the correct RDataType for the correct column
+listOfColInfoRDataType :: [ColumnInfo] -> RTuple -> [(ColumnInfo, RDataType)]  
 listOfColInfoRDataType (ci:[]) rtup = [(ci, rtup HM.!(name ci))]  -- rt HM.!(name ci) -> this returns the RDataType by column name
 listOfColInfoRDataType (ci:colInfos) rtup = (ci, rtup HM.!(name ci)):listOfColInfoRDataType colInfos rtup
 
@@ -2284,7 +2325,9 @@ createNullRTuple ::
 createNullRTuple cnames = HM.fromList $ zipped
     where zipped = Data.List.zip cnames (Data.List.take (Data.List.length cnames) (repeat Null))
 
--- | Returns True if the input RTuple is a Null RTuple, otherwise it returns False
+-- | Returns 'True' if the input 'RTuple' is a Null RTuple, otherwise it returns 'False'
+-- Note that a Null RTuple has all its values equal with 'Null' but it still has columns. This is different from an empty 'RTuple', which
+-- is an 'RTuple' withi no columns and no values whatsoever. See 'isRTupEmpty'.
 isNullRTuple ::
        RTuple 
     -> Bool    
@@ -2336,9 +2379,16 @@ rdatatypeFoldl' :: (RDataType -> RTuple -> RDataType) -> RDataType -> RTable -> 
 rdatatypeFoldl' f accum rtab = V.foldl' f accum rtab
 
 
--- | Map function over an RTable
+-- | Map function over an 'RTable'.
 rtabMap :: (RTuple -> RTuple) -> RTable -> RTable
 rtabMap f rtab = V.map f rtab 
+
+-- Map function over an 'RTuple'.
+rtupleMap :: (RDataType -> RDataType) -> RTuple -> RTuple
+rtupleMap f t = HM.map f t 
+
+rtupleMapWithKey :: (ColumnName -> RDataType -> RDataType) -> RTuple -> RTuple
+rtupleMapWithKey f t = HM.mapWithKey f t
 
 -- * ########## RTable Relational Operations ##############
 
@@ -2658,18 +2708,62 @@ runLeftJoin jpred preservingTab tab =
                     -- we know that both the preservingTab and tab are non empty 
                     let 
                         unionFstPart = iJ jpred preservingTab tab 
+
+                        -- debug
+                        -- !dummy1 = trace ("unionFstPart:\n" ++ show unionFstPart) True
+
                         -- project only the preserving tab's columns
-                        fstPartProj = p (getColumnNamesfromRTab preservingTab) unionFstPart
+                        fstPartProj = p (getColumnNamesFromRTab preservingTab) unionFstPart
 
                         -- the second part are the rows from the preserving table that dont join
                         -- we will use the Difference operations for this
                         unionSndPart = 
                             let 
                                 difftab = d preservingTab fstPartProj -- unionFstPart
+
                                 -- now enhance the result with the columns of the right table
-                            in iJ (\t1 t2 -> True) difftab (createSingletonRTable $ createNullRTuple $ (getColumnNamesfromRTab tab))
+                            in iJ (\t1 t2 -> True) difftab (createSingletonRTable $ createNullRTuple $ (getColumnNamesFromRTab tab))
+                        -- debug
+                        -- !dummy2 = trace ("unionSndPart :\n" ++ show unionSndPart) True
+                        -- !dummy3 = trace ("u unionFstPart unionSndPart :\n" ++ (show $ u unionFstPart unionSndPart)) True
+
+                            {-   -- now enhance the result with the columns of the right table
+                                joinedColumnsTab = iJ (\t1 t2 -> True) difftab (createSingletonRTable $ createNullRTuple $ (getColumnNamesFromRTab tab))
+                                -- get only the columns from the two rtables that dont overlap
+                                finalListOfColumns = getUniqueColumnNames (getColumnNamesFromRTab preservingTab) (getColumnNamesFromRTab tab) 
+                                -- project only the columns from both rtables that dont overlap
+                                -- otherwise, the union will hit an "ConflictingRTableStructures "Cannot run: Union, due to conflicting RTable structures" exception.
+                            in p finalListOfColumns joinedColumnsTab
+                            -}
                     in u unionFstPart unionSndPart
 
+
+-- | Receives two lists of 'ColumnName's and returns the unique list of 'ColumnName's 
+-- after concatenating the two and removing the names from the second one that are a prefix of the first one.
+-- This function is intended to dedublicate common columns after a join (see 'ij'), where "ColA" for example,
+-- will also appear as "ColA_1". This function DOES NOT dedublicate columns "ColA" and "ColAsomeSuffix", only
+-- cases like this one "ColName_Num" (e.g., ColName_1, ColName_2, etc.)
+-- Here is an example:
+--
+-- >>> getUniqueColumnNames ["ColA","ColB"] ["ColC","ColA", "ColA_1", "ColA_2", "ColA_A", "ColA_hello", "ColAhello"]
+-- >>> ["ColA","ColB","ColC","ColA_A","ColA_hello","ColAhello"]
+--
+getUniqueColumnNamesAfterJoin :: [ColumnName] -> [ColumnName] -> [ColumnName]
+getUniqueColumnNamesAfterJoin cl1 cl2 = 
+    -- cl1  ++ Data.List.filter (\n2 -> and $ Data.List.map (\n1 -> not $ T.isPrefixOf n1 n2) cl1) cl2
+    cl1  ++ Data.List.filter (\n2 -> and $ Data.List.map (\n1 -> not $ isMyPrefixOf n1 n2) cl1) cl2
+    where
+        -- We want a prefix test that will return:
+        -- isMyPrefixOf "ColA" "ColA_1" == True
+        -- isMyPrefixOf "ColA" "ColA_lala" == False
+        -- isMyPrefixOf "ColA" "ColAlala" == False
+        isMyPrefixOf :: ColumnName -> ColumnName -> Bool
+        isMyPrefixOf cn1 cn2 = 
+            let
+                -- rip off suffixes of the form "_Num" e.g., "Col_1", "Col_2"  -> "Col", "Col"
+                cn2_new = T.dropWhileEnd (\c -> c == '_') $ T.dropWhileEnd (\c -> isDigit c) cn2
+                -- and now compare for equality
+            in cn1 == cn2_new
 
 -- | RTable Right Outer Join Operator. A short name for the 'runRightJoin' function
 rJ = runRightJoin
@@ -2711,7 +2805,7 @@ runRightJoin jpred tab preservingTab =
 
                         -- project only the preserving tab's columns
                         fstPartProj = 
-                            p (getColumnNamesfromRTab preservingTab) unionFstPart
+                            p (getColumnNamesFromRTab preservingTab) unionFstPart
 
                         -- the second part are the rows from the preserving table that dont join
                         -- we will use the Difference operations for this
@@ -2720,7 +2814,7 @@ runRightJoin jpred tab preservingTab =
                                 difftab = 
                                     d preservingTab   fstPartProj -- unionFstPart 
                                 -- now enhance the result with the columns of the left table
-                            in iJ (\t1 t2 -> True) difftab (createSingletonRTable $ createNullRTuple $ (getColumnNamesfromRTab tab))
+                            in iJ (\t1 t2 -> True) difftab (createSingletonRTable $ createNullRTuple $ (getColumnNamesFromRTab tab))
                         -- debug
                         -- !dummy2 = trace ("unionSndPart :\n" ++ show unionSndPart) True
                         -- !dummy3 = trace ("u unionFstPart unionSndPart :\n" ++ (show $ u unionFstPart unionSndPart)) True
@@ -2774,9 +2868,9 @@ runFullOuterJoin jpred leftRTab rightRTab = -- (lJ jpred leftRTab rightRTab) `u`
         -- we need to construct the 2nd part of the union with leftTab columns unchanged and rightTab changed        
         unionSndPartTemp1 = d (rJ jpred leftRTab rightRTab) (iJ (flip jpred) rightRTab leftRTab)        
         -- isolate the columns of the rightTab
-        unionSndPartTemp2 = p (getColumnNamesfromRTab rightRTab) unionSndPartTemp1
+        unionSndPartTemp2 = p (getColumnNamesFromRTab rightRTab) unionSndPartTemp1
         -- this join is a trick in order to change names of the rightTab
-        unionSndPart = iJ (\t1 t2 -> True) (createSingletonRTable $ createNullRTuple $ (getColumnNamesfromRTab leftRTab)) unionSndPartTemp2
+        unionSndPart = iJ (\t1 t2 -> True) (createSingletonRTable $ createNullRTuple $ (getColumnNamesFromRTab leftRTab)) unionSndPartTemp2
     in unionFstPart `u` unionSndPart
 
 -- | RTable Union Operator. A short name for the 'runUnion' function
@@ -2798,7 +2892,8 @@ runUnion rt1 rt2 =
     in  V.fromList resultLs
 -}
 
--- | Implements the union of two RTables as a union of two lists (see 'Data.List').
+-- | Implements the union of two RTables.
+-- Note that dublicate 'RTuple' elimination takes places.
 runUnion :: 
     RTable
     -> RTable
@@ -2813,19 +2908,47 @@ runUnion rt1 rt2 =
                 else
                     if isRTabEmpty rt2
                         then rt1
+                        else 
+                            -- check similarity of rtable structures 
+                            if rtabsSameStructure rt1 rt2  
+                                then
+                                    -- run the union
+                                    -- construct the union result by concatenating the left table with the subset of tuple from the right table that do
+                                    -- not appear in the left table (i.e, remove dublicates)
+                                    rt1 V.++ (V.foldr (un) emptyRTable rt2)
+                                else 
+                                   throw $ ConflictingRTableStructures "Cannot run: Union, due to conflicting RTable structures." 
+    where
+        un :: RTuple -> RTable -> RTable
+        un tupRight acc = 
+            -- Can we find tupRight in the left table?            
+            if didYouFindIt tupRight rt1 
+                then acc   -- then discard tuplRight ,leave result unchanged          
+                else V.snoc acc tupRight  -- else insert tupRight into final result
+
+-- | Implements the union-all of two RTables. I.e., a union without dublicate 'RTuple' elimination. Runs in O(m+n).
+runUnionAll :: 
+    RTable
+    -> RTable
+    -> RTable
+runUnionAll rt1 rt2 =
+    if isRTabEmpty rt1 && isRTabEmpty rt2
+        then 
+            emptyRTable
+        else
+            if isRTabEmpty rt1
+                then rt2 
+                else
+                    if isRTabEmpty rt2
+                        then rt1
                         else  
-                            -- construct the union result by concatenating the left table with the subset of tuple from the right table that do
-                            -- not appear in the left table (i.e, remove dublicates)
-                            rt1 V.++ (V.foldr (un) emptyRTable rt2)
-                            where
-                                un :: RTuple -> RTable -> RTable
-                                un tupRight acc = 
-                                    -- Can we find tupRight in the left table?            
-                                    if didYouFindIt tupRight rt1 
-                                        then acc   -- then discard tuplRight ,leave result unchanged          
-                                        else V.snoc acc tupRight  -- else insert tupRight into final result
-
-
+                            -- check similarity of rtable structures
+                            if rtabsSameStructure rt1 rt2  
+                                then
+                                    -- run the union
+                                    rt1 V.++ rt2  -- Data.Vector concatenation O(n+m)
+                                else 
+                                   throw $ ConflictingRTableStructures "Cannot run: UnionAll, due to conflicting RTable structures."                             
 
 -- | RTable Intersection Operator. A short name for the 'runIntersect' function
 i = runIntersect
@@ -2840,15 +2963,21 @@ runIntersect rt1 rt2 =
         then
             emptyRTable
         else 
-            -- construct the intersect result by traversing the left table and checking if each tuple exists in the right table
-            V.foldr (intsect) emptyRTable rt1
-            where
-                intsect :: RTuple -> RTable -> RTable
-                intsect tupLeft acc = 
-                    -- Can we find tupLeft in the right table?            
-                    if didYouFindIt tupLeft rt2 
-                        then V.snoc acc tupLeft  -- then insert tupLeft into final result
-                        else acc  -- else discard tuplLeft ,leave result unchanged          
+            -- check similarity of rtable structures
+            if rtabsSameStructure rt1 rt2  
+                then
+                    -- run the intersection
+                    -- construct the intersect result by traversing the left table and checking if each tuple exists in the right table
+                    V.foldr (intsect) emptyRTable rt1
+                else 
+                   throw $ ConflictingRTableStructures "Cannot run: Intersect, due to conflicting RTable structures." 
+    where
+        intsect :: RTuple -> RTable -> RTable
+        intsect tupLeft acc = 
+            -- Can we find tupLeft in the right table?            
+            if didYouFindIt tupLeft rt2 
+                then V.snoc acc tupLeft  -- then insert tupLeft into final result
+                else acc  -- else discard tuplLeft ,leave result unchanged          
 
 {-
 runIntersect rt1 rt2 = 
@@ -2892,15 +3021,21 @@ runDiff rt1 rt2 =
                 then
                     rt1
                 else  
-                    -- construct the diff result by traversing the left table and checking if each tuple exists in the right table
-                    V.foldr (diff) emptyRTable rt1
-                    where
-                        diff :: RTuple -> RTable -> RTable
-                        diff tupLeft acc = 
-                            -- Can we find tupLeft in the right table?            
-                            if didYouFindIt tupLeft rt2 
-                                then acc  -- then discard tuplLeft ,leave result unchanged
-                                else V.snoc acc tupLeft  -- else insert tupLeft into final result
+                    -- check similarity of rtable structures
+                    if rtabsSameStructure rt1 rt2  
+                        then
+                            -- run the minus
+                            -- construct the diff result by traversing the left table and checking if each tuple exists in the right table
+                            V.foldr (diff) emptyRTable rt1
+                        else 
+                           throw $ ConflictingRTableStructures "Cannot run: Minus, due to conflicting RTable structures."                             
+    where
+        diff :: RTuple -> RTable -> RTable
+        diff tupLeft acc = 
+            -- Can we find tupLeft in the right table?            
+            if didYouFindIt tupLeft rt2 
+                then acc  -- then discard tuplLeft ,leave result unchanged
+                else V.snoc acc tupLeft  -- else insert tupLeft into final result
 
 -- Important Note:
 -- we need to implement are own equality comparison function "areTheyEqual" and not rely on the instance of Eq defined for RDataType above
@@ -3257,18 +3392,147 @@ runCombinedROp f rtab = f rtab
 
 -- * ########## RTable DML Operations ##############
 
-
 -- | O(n) append an RTuple to an RTable
+-- Please note that this is an __immutable__ implementation of an 'RTable' insert.
+-- This simply means that the insert operation returns a new 'RTable' and does not
+-- affect the original 'RTable'.
 insertAppendRTab :: RTuple -> RTable -> RTable
-insertAppendRTab rtup rtab = V.snoc rtab rtup
+insertAppendRTab rtup rtab = -- V.snoc rtab rtup
+    if isRTabEmpty rtab && isRTupEmpty rtup 
+        then emptyRTable
+        else
+            if isRTabEmpty rtab && not(isRTupEmpty rtup)
+                then
+                    createSingletonRTable rtup 
+                else
+                    if not(isRTabEmpty rtab) && isRTupEmpty rtup 
+                        then rtab 
+                        else  -- non of the two is empty
+                            -- check similarity of structure vefore the insert
+                            if rtabsSameStructure (createSingletonRTable rtup) rtab
+                                then 
+                                    V.snoc rtab rtup
+                                else 
+                                    throw $ ConflictingRTableStructures "Cannot run: Insert Into Values (insertAppendRTab), due to conflicting RTable structures." 
 
 -- | O(n) prepend an RTuple to an RTable
+-- Please note that this is an __immutable__ implementation of an 'RTable' insert.
+-- This simply means that the insert operation returns a new 'RTable' and does not
+-- affect the original 'RTable'.
 insertPrependRTab :: RTuple -> RTable -> RTable
-insertPrependRTab rtup rtab = V.cons rtup rtab  
+insertPrependRTab rtup rtab = 
+    if isRTabEmpty rtab && isRTupEmpty rtup 
+        then emptyRTable
+        else
+            if isRTabEmpty rtab && not(isRTupEmpty rtup)
+                then
+                    createSingletonRTable rtup 
+                else
+                    if not(isRTabEmpty rtab) && isRTupEmpty rtup 
+                        then rtab 
+                        else  -- non of the two is empty    
+                            -- check similarity of structure vefore the insert
+                            if rtabsSameStructure (createSingletonRTable rtup) rtab
+                                then 
+                                    V.cons rtup rtab 
+                                else 
+                                    throw $ ConflictingRTableStructures "Cannot run: insertPrependRTab, due to conflicting RTable structures." 
 
--- | Update an RTable. Input includes a list of (ColumnName, new Value) pairs.
--- Also a filter predicate is specified in order to restrict the update only to those
--- rtuples that fulfill the predicate
+
+-- | Insert an 'RTable' to an existing 'RTable'. This is equivalent to an @INSERT INTO SELECT@ caluse in SQL.
+-- We want to insert into an 'RTable' the results of a \"subquery\", which in our case is materialized via the
+-- input 'RTable'.
+-- Please note that this is an __immutable__ implementation of an 'RTable' insert.
+-- This simply means that the insert operation returns a new 'RTable' and does not
+-- affect the original 'RTable'.
+insertRTabToRTab :: 
+                RTable -- ^ Source 'RTable' to be inserted
+                -> RTable -- ^ Target 'RTable'
+                -> RTable -- ^ Final Result
+insertRTabToRTab src trg = 
+    if isRTabEmpty src
+        then trg
+        else
+            if isRTabEmpty trg
+                then src 
+                else -- both src and trg are not empty
+                    
+                    -- check that both rtables have the same structure: 
+                    --      num of columns, column data types and column names.
+                    if rtabsSameStructure src trg 
+                        then
+                            -- run the insert (as a union all)
+                            runUnionAll src trg
+                        else 
+                           throw $ ConflictingRTableStructures "Cannot run: Insert Into <TAB> RTuples, due to conflicting RTable structures." 
+
+-- | Compares the structure of the input 'RTable's and returns 'True' if these are the same.
+-- By \"structure\", we mean that the 'ColumnName's and the corresponding data types must match. Essentially what we record in the 'ColumnInfo'
+-- must be the same for the two 'RTable's.
+-- Note that in the case of two columns having the same name but one of the two (or both) have a 'dtype' equal to 'UknownType', then
+-- this function assumes that they are the same (i.e., equal 'ColumnInfo's).
+rtabsSameStructure :: RTable -> RTable -> Bool
+rtabsSameStructure rtab1 rtab2 =
+    let 
+        cinfo_list1 = getColumnInfoFromRTab rtab1
+        cinfo_list2 = getColumnInfoFromRTab rtab2
+        -- in the case of two columns with the same name but with one of the two having a Null value,
+        -- then the comparison of the column data types will fail, since the column with the Null values
+        -- will have an "UknownType" in ColumnDType.
+        -- So, we have to normalize the list for this case, so that they pass the equality test
+        --
+        -- Traverse the list, and if you find a column of UknownType, then make it the same type with 
+        -- that of the column with the same name from the other list (if there is such a column)
+        cinfo_list1_new = Data.List.map (normalizeColInfoList cinfo_list2) cinfo_list1
+        cinfo_list2_new = Data.List.map (normalizeColInfoList cinfo_list1) cinfo_list2
+    in  
+        -- In order for the two lists to have the same elements (regardless of their order),
+        -- then the double minus must result to an empty list.
+        ( (cinfo_list1_new \\ cinfo_list2_new) == [] )
+                    &&
+        ( (cinfo_list2_new \\ cinfo_list1_new) == [] )
+    where
+        -- Traverse the list, and if you find a column of UknownType, then make it the same type with 
+        -- that of the column with the same name from the other list (if there is such a column)        
+        normalizeColInfoList :: [ColumnInfo] -> ColumnInfo -> ColumnInfo
+        normalizeColInfoList cinfo_list2 ci1 =  --  (\ci1 -> 
+            -- check if there is a column in the other list with the same name
+            case Data.List.find (\ci2 -> (name ci1) == (name ci2)) cinfo_list2 of
+                Nothing -> ci1  -- do nothing
+                Just ci ->  -- if the type of the 1st one is Uknown
+                            if (dtype ci1) == UknownType
+                                then
+                                    -- change the type to that of ci2
+                                    ColumnInfo {name = (name ci1), dtype = (dtype ci)}
+                                else -- do nothing
+                                    ci1 
+        -- )
+
+-- | Compares the structure of the input 'RTuple's and returns 'True' if these are the same.
+-- By \"structure\", we mean that the 'ColumnName's and the corresponding data types must match. Essentially what we record in the 'ColumnInfo'
+-- must be the same for the two 'RTuple's
+rtuplesSameStructure :: RTuple -> RTuple -> Bool
+rtuplesSameStructure t1 t2 =
+    let 
+        cinfo_list1 = getColumnInfoFromRTuple t1
+        cinfo_list2 = getColumnInfoFromRTuple t2
+    in  
+        -- In order for the two lists to have the same elements (regardless of their order),
+        -- then the double minus must result to an empty list.
+        ( (cinfo_list1 \\ cinfo_list2) == [] )
+                    &&
+        ( (cinfo_list2 \\ cinfo_list1) == [] )
+
+
+-- | Update an RTable. The input includes a list of (ColumnName, new Value) pairs.
+-- Also a filter predicate is specified, in order to restrict the update only to those
+-- 'RTuple's that fulfill the predicate.
+-- Please note that this is an __immutable__ implementation of an 'RTable' update. This simply means that
+-- the update operation returns a new 'RTable' that includes all the 'RTuple's of the original 'RTable', both the ones
+-- that have been updated and the others that have not. So, the original 'RTable' remains unchanged and no update in-place
+-- takes place whatsoever.
+-- Moreover, if we have multiple threads updating an 'RTable', due to immutability, each thread \"sees\" its own copy of
+-- the 'RTable' and thus there is no need for locking the updated 'RTuple's, as happens in a common RDBMS.
 updateRTab ::
         [(ColumnName, RDataType)] -- ^ List of column names to be updated with the corresponding new values
     ->  RPredicate  -- ^ An RTuple -> Bool function that specifies the RTuples to be updated
@@ -3276,7 +3540,7 @@ updateRTab ::
     ->  RTable       -- ^ Output RTable
 updateRTab [] _ inputRtab = inputRtab 
 updateRTab ((colName, newVal) : rest) rpred inputRtab = 
-    {-
+    {-  -- READ ME PLEASE --
         Here is the update algorithm:
 
         FinalRTable = UNION (Table A) (Table B)
@@ -3290,9 +3554,33 @@ updateRTab ((colName, newVal) : rest) rpred inputRtab =
         then emptyRTable
         else
             let 
-                tabA = rtabMap (upsertRTuple colName newVal) (f rpred inputRtab)
+                tabA = rtabMap (updateRTuple colName newVal) (f rpred inputRtab)
                 tabB = f (not . rpred) inputRtab 
             in updateRTab rest rpred (u tabA tabB)
+
+-- | Update an RTuple at a specific column specified by name with a value. If the 'ColumnName'
+-- exists, then the value is updated with the input value. If the 'ColumnName' does not exist,
+-- then a 'ColumnDoesNotExist' excpetion is thrown.
+updateRTuple ::
+           ColumnName  -- ^ key where the update will take place
+        -> RDataType   -- ^ new value
+        -> RTuple      -- ^ input RTuple
+        -> RTuple      -- ^ output RTuple
+updateRTuple cname newVal tupsrc = 
+    case rtupLookup cname tupsrc of
+        Nothing   ->  throw $ ColumnDoesNotExist cname 
+        _         ->  HM.insert cname newVal tupsrc
+        
+
+-- | Upsert (update/insert) an RTuple at a specific column specified by name with a value
+-- If the cname key is not found then the (columnName, value) pair is inserted. If it exists
+-- then the value is updated with the input value.
+upsertRTuple ::
+           ColumnName  -- ^ key where the upsert will take place
+        -> RDataType   -- ^ new value
+        -> RTuple      -- ^ input RTuple
+        -> RTuple      -- ^ output RTuple
+upsertRTuple cname newVal tupsrc = HM.insert cname newVal tupsrc
 
 -- * ########## RTable IO Operations ##############
 
@@ -3464,7 +3752,7 @@ getMaxLengthPerColumnFmt rtupFmt rtab =
             rtup <- rtab
             let ls = Data.List.map (\(c, v) -> (c, RInt $ fromIntegral $ Data.List.length . rdataTypeToString $ v) ) (rtupleToList rtup)
                 -- create an RTuple with the column names lengths
-                headerLengths = Data.List.zip (getColumnNamesfromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length (T.unpack c)) (getColumnNamesfromRTab rtab))
+                headerLengths = Data.List.zip (getColumnNamesFromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length (T.unpack c)) (getColumnNamesFromRTab rtab))
             -- append  to the rtable also the tuple corresponding to the header (i.e., the values will be the names of the column) in order
             -- to count them also in the width calculation
             (return $ createRtuple ls) V.++ (return $ createRtuple headerLengths)
@@ -3474,7 +3762,7 @@ getMaxLengthPerColumnFmt rtupFmt rtab =
                 where
                     findMaxLengthperColumn :: RTable -> RTable
                     findMaxLengthperColumn rt = 
-                        let colNames = (getColumnNamesfromRTab rt) -- [ColumnName]
+                        let colNames = (getColumnNamesFromRTab rt) -- [ColumnName]
                             aggOpsList = Data.List.map (\c -> raggMax c c) colNames  -- [AggOp]
                         in runAggregation aggOpsList rt
          -- get the RTuple with the results
@@ -3499,7 +3787,7 @@ getMaxLengthPerColumn rtab =
             rtup <- rtab
             let ls = Data.List.map (\(c, v) -> (c, RInt $ fromIntegral $ Data.List.length . rdataTypeToString $ v) ) (rtupleToList rtup)
                 -- create an RTuple with the column names lengths
-                headerLengths = Data.List.zip (getColumnNamesfromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length (T.unpack c)) (getColumnNamesfromRTab rtab))
+                headerLengths = Data.List.zip (getColumnNamesFromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length (T.unpack c)) (getColumnNamesFromRTab rtab))
             -- append  to the rtable also the tuple corresponding to the header (i.e., the values will be the names of the column) in order
             -- to count them also in the width calculation
             (return $ createRtuple ls) V.++ (return $ createRtuple headerLengths)
@@ -3509,7 +3797,7 @@ getMaxLengthPerColumn rtab =
                 where
                     findMaxLengthperColumn :: RTable -> RTable
                     findMaxLengthperColumn rt = 
-                        let colNames = (getColumnNamesfromRTab rt) -- [ColumnName]
+                        let colNames = (getColumnNamesFromRTab rt) -- [ColumnName]
                             aggOpsList = Data.List.map (\c -> raggMax c c) colNames  -- [AggOp]
                         in runAggregation aggOpsList rt
 
@@ -3518,8 +3806,8 @@ getMaxLengthPerColumn rtab =
         julexpr =  EtlMapStart
                 -- Turn each value to an (RInt i) that correposnd to the length of the String representation of the value
                 :-> (EtlC $ 
-                        Source (getColumnNamesfromRTab rtab)
-                        Target (getColumnNamesfromRTab rtab)
+                        Source (getColumnNamesFromRTab rtab)
+                        Target (getColumnNamesFromRTab rtab)
                         By (\[value] -> [RInt $ Data.List.length . rdataTypeToString $ value] )
                         (On $ Tab rtab) 
                         RemoveSrc $
@@ -3533,7 +3821,7 @@ getMaxLengthPerColumn rtab =
                 where
                     findMaxLengthperColumn :: RTable -> RTable
                     findMaxLengthperColumn rt = 
-                        let colNames = (getColumnNamesfromRTab rt) -- [ColumnName]
+                        let colNames = (getColumnNamesFromRTab rt) -- [ColumnName]
                             aggOpsList = V.map (\c -> raggMax c c) colNames  -- [AggOp]
                         in runAggregation aggOpsList rt
 
@@ -3580,7 +3868,7 @@ printContLineFmt rtupFmt widths ch rtab = do
                                 then
                                     colSelectList rtupFmt
                                 else
-                                    getColumnNamesfromRTab rtab -- [ColumnName] 
+                                    getColumnNamesFromRTab rtab -- [ColumnName] 
         listOfLinesCont = Data.List.map (\c -> Data.List.take (Data.List.length (T.unpack c)) (repeat ch)) listOfColNames
         --listOfLinesCont = Data.List.map (\c ->  T.replicate (T.length c) (T.singleton ch)) listOfColNames
         formattedLinesCont = Data.List.map (\(w,l) -> addCharacter (w - (Data.List.length l) + spaceSeparatorWidth) ch l) (Data.List.zip widths listOfLinesCont)
@@ -3595,7 +3883,7 @@ printContLine ::
     -> RTable
     -> IO ()
 printContLine widths ch rtab = do
-    let listOfColNames =  getColumnNamesfromRTab rtab -- [ColumnName] 
+    let listOfColNames =  getColumnNamesFromRTab rtab -- [ColumnName] 
         listOfLinesCont = Data.List.map (\c -> Data.List.take (Data.List.length (T.unpack c)) (repeat ch)) listOfColNames
         formattedLinesCont = Data.List.map (\(w,l) -> addCharacter (w - (Data.List.length l) + spaceSeparatorWidth) ch l) (Data.List.zip widths listOfLinesCont)
         formattedRowOfLinesCont = Data.List.foldr (\line accum -> line ++ accum) "" formattedLinesCont
@@ -3610,7 +3898,7 @@ printRTableHeaderFmt ::
     -> RTable
     -> IO ()
 printRTableHeaderFmt rtupFmt widths rtab = do -- undefined    
-        let listOfColNames = if rtupFmt /= genRTupleFormatDefault then colSelectList rtupFmt else  getColumnNamesfromRTab rtab -- [ColumnName]
+        let listOfColNames = if rtupFmt /= genRTupleFormatDefault then colSelectList rtupFmt else  getColumnNamesFromRTab rtab -- [ColumnName]
             -- format each column name according the input width and return a list of Boxes [Box]
             -- formattedList =  Data.List.map (\(w,c) -> BX.para BX.left (w + spaceSeparatorWidth) c) (Data.List.zip widths listOfColNames)    -- listOfColNames   -- map (\c -> BX.render . BX.text $ c) listOfColNames
             formattedList = Data.List.map (\(w,c) -> addSpace (w - (Data.List.length (T.unpack c)) + spaceSeparatorWidth) (T.unpack c)) (Data.List.zip widths listOfColNames) 
@@ -3643,7 +3931,7 @@ printRTableHeader ::
     -> RTable
     -> IO ()
 printRTableHeader widths rtab = do -- undefined    
-        let listOfColNames =  getColumnNamesfromRTab rtab -- [ColumnName]
+        let listOfColNames =  getColumnNamesFromRTab rtab -- [ColumnName]
             -- format each column name according the input width and return a list of Boxes [Box]
             -- formattedList =  Data.List.map (\(w,c) -> BX.para BX.left (w + spaceSeparatorWidth) c) (Data.List.zip widths listOfColNames)    -- listOfColNames   -- map (\c -> BX.render . BX.text $ c) listOfColNames
             formattedList = Data.List.map (\(w,c) -> addSpace (w - (Data.List.length (T.unpack c)) + spaceSeparatorWidth) (T.unpack c)) (Data.List.zip widths listOfColNames) 
@@ -3827,7 +4115,14 @@ instance Exception UnsupportedTimeStampFormat
 -- instance Exception RTimestampFormatLengthMismatch
 
 -- | One (or both) of the input 'String's to function 'toRTimestamp' are empty
-data EmptyInputStringsInToRTimestamp = EmptyInputStringsInToRTimestamp String String deriving(Eq,Show)
+data EmptyInputStringsInToRTimestamp = EmptyInputStringsInToRTimestamp String String deriving(Eq, Show)
 instance Exception EmptyInputStringsInToRTimestamp
 
-
+-- | This exception means that we have tried to do some operation between two 'RTables', which requires that
+-- the structure of the two is the same. e.g., an @Insert Into <TAB> RTuples@, or a @UNION@ or toher set operations. 
+-- By \"structure\", we mean that the 'ColumnName's and the corresponding data types must match. Essentially what we record in the 'ColumnInfo'
+-- must be the same for the two 'RTable's
+data ConflictingRTableStructures = 
+        ConflictingRTableStructures String  -- ^ Error message indicating the operation that failed.
+        deriving(Eq, Show)
+instance Exception ConflictingRTableStructures

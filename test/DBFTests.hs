@@ -4,6 +4,8 @@ main = putStrLn "Test suite not yet implemented"
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
+-- :set -XOverloadedStrings
+
 {-# LANGUAGE ViewPatterns #-}  
 --{-# LANGUAGE BangPatterns #-}
 
@@ -58,6 +60,9 @@ main = do
     C.writeCSV fo csv
     C.printCSV csv
     --}
+
+    -- *** test CSV to RTable conversion                                        
+    putStrLn "*** test CSV to RTable conversion"
     
     --let newcsv = selectNrows (read n) csv
     let rtmdata = T.createRTableMData ( "TestTable", 
@@ -70,12 +75,16 @@ main = do
                                       ) 
                                         []  -- primary key
                                         []  -- list of unique keys
-        -- *** test CSV to RTable conversion                                        
+
         rtab = C.toRTable rtmdata csv
         rtabNew = T.limit (read n) rtab
         csvNew = C.fromRTable rtmdata rtabNew   
 
-        -- *** test RFilter & RProjection operation
+    -- *** test RFilter & RProjection operation
+    putStrLn "*** test RFilter & RProjection operation"
+
+    let
+
         rtabNew2 =  let
                        myfilter = T.f (\t -> t!"Name" == T.RText {T.rtext = "Karagiannidis"})
                        myprojection = T.p ["Name","MyTime","Number"]
@@ -131,6 +140,8 @@ main = do
 
     
     -- *** test Column Mapping
+    putStrLn "*** test Column Mapping"
+
     -- create a new column holding the doubled value from the source column
     let cmap1 = E.RMap1x1 {E.srcCol = "Number", E.removeSrcCol = E.No, E.trgCol = "NewNumber", E.transform1x1 = \x -> 2*x, E.srcRTupleFilter = \_ -> True}
         rtabNew3 = E.runCM cmap1 rtabNew2
@@ -173,7 +184,11 @@ main = do
     -- C.printCSV csvNew3
 
     -- *** test inner join operation
-    let rtabNew4 = T.iJ (\t1 t2 -> t1!"Number" == t2!"Number") rtabNew3 rtab 
+    putStrLn "*** test inner join operation"
+
+    let rtabNew4 = -- p ["Name", "MyDate", "MyTime", "Number", "DNumber", "NewNumber"] $ 
+                        T.iJ (\t1 t2 -> t1!"Number" == t2!"Number") rtabNew3 rtab 
+        
         rtmdata4 = T.createRTableMData ( "TestTable4", 
                                          [  ("Name", T.Varchar),
                                             ("MyDate", T.Date "DD/MM/YYYY"), 
@@ -186,11 +201,13 @@ main = do
                                        []  -- primary key
                                        []  -- list of unique keys
     -- Test Julius
+
         rtabNew4_J = E.etl $ evalJulius $
             EtlMapStart
             :-> (EtlR $
                     ROpStart
-                    :.  (Join (TabL rtabNew3) (Tab rtab) $ JoinOn (\t1 t2 -> t1!"Number" == t2!"Number"))
+                    :. (Join (TabL rtabNew3) (Tab rtab) $ JoinOn (\t1 t2 -> t1!"Number" == t2!"Number"))
+                  --  :. (Select ["Name", "MyDate", "MyTime", "Number", "DNumber", "NewNumber"] $ From Previous)
                 )
 
 {-        rtabNew4_J = E.etl $ evalJulius $
@@ -202,10 +219,15 @@ main = do
         
     writeResult fo "_t4.csv" rtmdata4 rtabNew4
     writeResult fo "_t4_J.csv" rtmdata4 rtabNew4_J
-    putStrLn "TEST INNER JOIN"
+    -- putStrLn "TEST INNER JOIN"
     T.printRTable rtabNew4_J  
+    {-let    
+        rtabNew4 = emptyRTable
+        rtabNew4_J = emptyRTable-}
 
     -- *** Test union, interesection, diff
+    putStrLn "*** Test union, interesection, diff"
+
     let -- change the value in column NewNumber
         cmap2 = E.RMap1x1 {E.srcCol = "NewNumber", E.removeSrcCol = E.No, E.trgCol = "NewNumber", E.transform1x1 = \x -> x + 100, E.srcRTupleFilter = \_ -> True}
         -- now union the two rtables
@@ -220,10 +242,15 @@ main = do
                                          ]                                       
                                        )   
                                        []  -- primary key
-                                       []  -- list of unique keys
+                                       []  -- list of unique keys    
 
         rtabNew6 = rtabNew5 `T.i` rtabNew4
+
         rtabNew7 =  rtabNew5 `T.d` rtabNew6
+
+    sequence_ [printRTable rtabNew5, printRTable rtabNew6, printRTable rtabNew7]
+
+    let
 
     -- Test Julius
         rtabNew7_J = E.etl $ evalJulius $
@@ -278,7 +305,10 @@ main = do
                     :.  (MinusP (Tab rtabNew5) (TabL rtabNew6))
                 )
 
--- test Intermediate named results
+    -- *** test Intermediate named results
+    putStrLn "*** test Intermediate named results"
+
+    let
         rtabNew7a_J = E.etl $ evalJulius $ etlXpression
 
         etlXpression = 
@@ -371,6 +401,8 @@ main = do
     writeResult fo "_t7_J3.csv" rtmdata5 rtabNew7_J3
 
     -- *** Change existing column name 
+    putStrLn "*** Change existing column name"
+
     let -- change the value in column NewNumber
         cmap3 = E.RMap1x1 {E.srcCol = "NewNumber", E.removeSrcCol = E.Yes, E.trgCol = "NewNewNumber", E.transform1x1 = \x -> x, E.srcRTupleFilter = \_ -> True}
         rtabNew8 = E.runCM cmap3 rtabNew5
@@ -402,7 +434,9 @@ main = do
     writeResult fo "_t8_J.csv" rtmdata8 rtabNew8_J
     T.printRTable rtabNew8_J
 
-    -- Test a RMapNx1 column mapping
+    -- *** Test a RMapNx1 column mapping
+    putStrLn "*** Test a RMapNx1 column mapping"
+
     let 
         cmap4 = E.RMapNx1 {E.srcColGrp = ["Name","MyTime"], E.removeSrcCol = E.Yes, E.trgCol = "New_Nx1_Col", E.transformNx1 = (\[n, T.RTime{T.rtime = t}] -> n `rdtappend` (T.RText "<---->") `rdtappend` (T.rTimestampToRText T.stdTimestampFormat t)), E.srcRTupleFilter = \_ -> True}
         rtabNew9 = E.runCM cmap4 rtabNew8
@@ -434,7 +468,9 @@ main = do
     writeResult fo "_t9_J.csv" rtmdata9 rtabNew9_J    
     T.printRTable rtabNew9_J    
 
- -- Test a RMap1xN column mapping
+ -- *** Test a RMap1xN column mapping
+    putStrLn "*** Test a RMap1xN column mapping"
+
     let 
         cmap5 = E.RMap1xN {E.srcCol = "New_Nx1_Col", E.removeSrcCol = E.No, E.trgColGrp = ["1xN_A","1xN_B","1xN_C"], E.transform1xN = (\(T.RText txt) -> [T.RText (Data.Text.take 5 txt), T.RText "<-|-|-|->", T.RText (Data.Text.takeEnd 10 txt)]), E.srcRTupleFilter = \_ -> True}
         rtabNew10 = E.runCM cmap5 rtabNew9
@@ -469,7 +505,9 @@ main = do
     writeResult fo "_t10_J.csv" rtmdata10 rtabNew10_J 
     T.printRTable rtabNew10_J                                
 
--- Test a RMapNxM column mapping
+-- *** Test a RMapNxM column mapping
+    putStrLn "*** Test a RMapNxM column mapping"
+
     let 
         cmap6 = E.RMapNxM {E.srcColGrp = ["1xN_A","1xN_B","1xN_C"], E.removeSrcCol = E.Yes, E.trgColGrp = ["ColNew1","ColNew2"], E.transformNxM = transformation, E.srcRTupleFilter = \_ -> True}
                 where
@@ -507,7 +545,9 @@ main = do
     writeResult fo "_t11_J.csv" rtmdata11 rtabNew11_J 
     T.printRTable rtabNew11_J                                     
 
--- Test removeColumn operation
+-- *** Test removeColumn operation
+    putStrLn "*** Test removeColumn operation"
+
     let 
         rtabNew12 = T.removeColumn "NewNewNumber" (T.removeColumn "MyDate" rtabNew11)        
         rtmdata12 = T.createRTableMData ( "TestTable12", 
@@ -545,7 +585,9 @@ main = do
     print rtabNew12_J
     T.printRTable rtabNew12_J
 
---  Test combined Roperations
+--  *** Test combined Roperations
+    putStrLn "*** Test combined Roperations"
+
     let
         myfilter = T.f (\t -> t!"Name" == T.RText {T.rtext = "Karagiannidis"})
         myprojection = T.p ["Name","MyTime","Number", "ColNew2"]
@@ -582,7 +624,9 @@ main = do
     print rtabNew13_J
     T.printRTable rtabNew13_J
 
--- Test Left Outer Join
+-- *** Test Left Outer Join
+    putStrLn "*** Test Left Outer Join"
+
     let rtabNew14 = T.lJ (\t1 t2 -> t1!"Number" == t2!"Number") rtab rtabNew3
         rtmdata14 = T.createRTableMData ( "TestTable14", 
                                          [  ("Name", T.Varchar),
@@ -600,7 +644,7 @@ main = do
     -- the first part is the join
     let rtabNew14_dbg_1part = T.iJ (\t1 t2 -> t1!"Number" == t2!"Number") rtab rtabNew3  -- these are the rows of the left tab (enhanced with new columns) that satisfy the join
         -- project only left tab's columns
-        rtabNew14_dbg_1part_proj = T.p (T.getColumnNamesfromRTab rtab) rtabNew14_dbg_1part
+        rtabNew14_dbg_1part_proj = T.p (T.getColumnNamesFromRTab rtab) rtabNew14_dbg_1part
 
 
         -- enhance the left tab with the new columns with NULL values
@@ -616,7 +660,7 @@ main = do
         --        T.decodeRTable "DNumber" (T.RText "x") T.Null T.Null T.Ignore diffTab
 
         -- enhance this with null columns from the non-preserving table
-        rtabNew14_dbg_2part = T.iJ (\t1 t2 -> True) rtabNew14_dbg_2part_a (T.createSingletonRTable $ T.createNullRTuple $ (T.getColumnNamesfromRTab rtabNew3))
+        rtabNew14_dbg_2part = T.iJ (\t1 t2 -> True) rtabNew14_dbg_2part_a (T.createSingletonRTable $ T.createNullRTuple $ (T.getColumnNamesFromRTab rtabNew3))
 
         -- finally, union the two parts
         rtabNew14_dbg = T.u rtabNew14_dbg_1part rtabNew14_dbg_2part
@@ -641,7 +685,9 @@ main = do
     putStrLn "Test LEFT JOIN"
     T.printRTable rtabNew14_J
 
--- Test Right Outer Join
+-- *** Test Right Outer Join
+    putStrLn "*** Test Right Outer Join"
+
     let rtabNew15 = T.rJ (\t1 t2 -> t1!"Number" == t2!"Number") rtab rtabNew3
         rtmdata15 = T.createRTableMData ( "TestTable15", 
                                          [  ("Name", T.Varchar),
@@ -668,7 +714,9 @@ main = do
     putStrLn "Test RIGHT JOIN"
     T.printRTable rtabNew15_J
 
--- Test Full Outer Join
+-- *** Test Full Outer Join
+    putStrLn "*** Test Full Outer Join"
+
     let rtabNew15fo = T.foJ (\t1 t2 -> t1!"Number" == t2!"Number") rtab rtabNew3
         rtabNew15fo2 = T.foJ (\t1 t2 -> t1!"Number" == t2!"Number") rtabNew3 rtab 
         rtmdata15 = T.createRTableMData ( "TestTable15", 
@@ -709,7 +757,9 @@ main = do
 
 
 
--- Test Aggregation
+-- *** Test Aggregation
+    putStrLn "*** Test Aggregation"
+
     -- 
     let rtabNew16 = T.rAgg [T.raggSum "Number" "SumNumber" 
                             , T.raggCount "Number" "CountNumber"                            
@@ -780,7 +830,9 @@ main = do
     T.printRTable rtabNew16
     T.printRTable rtabNew16_J
 
--- Test GroupBy
+-- *** Test GroupBy
+    putStrLn "*** Test GroupBy"
+
     -- 
     let rtabNew17 = T.rG    (\t1 t2 ->  t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime")  
                             [   T.raggSum "Number" "SumNumber" 
@@ -863,28 +915,29 @@ main = do
     writeResult fo "_t17.csv" rtmdata17 rtabNew17
     writeResult fo "_t17_J.csv" rtmdata17 rtabNew17_J
 
-    putStrLn "#### TEST GROUP BY ###"
+    -- putStrLn "#### TEST GROUP BY ###"
     T.printRTable rtabNew 
     T.printRTable rtabNew17_J
 
-    -- test groupNoAgg function
-    putStrLn "GroupBy with [] AggOp list"
+    -- *** test groupNoAgg function
+    putStrLn "*** GroupBy with [] AggOp list"
+
     T.printRTable rtabNew17_J2
-    putStrLn "Test groupNoAgg function"
+    putStrLn "*** Test groupNoAgg function"
     T.printRTable $
         groupNoAgg  (\t1 t2 -> t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime")
                     ["Name", "MyTime"]
                     rtabNew
 
     -- test groupNoAggList function                    
-    putStrLn "Test groupNoAggList function"
+    putStrLn "*** Test groupNoAggList function"
     mapM_ (T.printRTable) $
         groupNoAggList  (\t1 t2 -> t1!"Name" == t2!"Name" && t1!"MyTime" == t2!"MyTime")
                     ["Name", "MyTime"]
                     rtabNew
 
 
-    putStrLn "#### TEST CUSTOM Aggregation ###"
+    putStrLn "*** TEST CUSTOM Aggregation"
     putStrLn "Implement a custom listagg()"
 
     printRTable $ juliusToRTable $
@@ -917,7 +970,7 @@ main = do
     -- T.printRTable rtabNew18
     T.printfRTable (genRTupleFormat [ "Name", "ListAggName", "CountName"] genDefaultColFormatMap) $ rtabNew18
 
-    putStrLn "### Test StrAgg aggregation"
+    putStrLn "*** Test StrAgg aggregation"
 
     rtabNew19 <- runJulius $
             EtlMapStart
@@ -941,6 +994,94 @@ main = do
 
     -- T.printRTable rtabNew18
     T.printfRTable (genRTupleFormat [ "Name", "ListAggName", "CountName"] genDefaultColFormatMap) $ rtabNew19
+
+
+    -- Test updateRTab
+    putStrLn "*** Test RTable update"
+
+    printRTable rtabNew
+    printRTable $ updateRTab [("Name" , RText "Mr. Smith")] (\t -> t <!> "Name" == RText "Karagiannidis") rtabNew
+
+    printRTable $ juliusToRTable $
+            EtlMapStart
+            :-> (EtlR $
+                    ROpStart
+                    :. (Update (Tab rtabNew) (Set [("Name" , RText "Mr. Smith")]) $
+                            FilterBy (\t -> t <!> "Name" == RText "Karagiannidis")
+                        )                    
+                )
+
+    -- Test UnionAll
+    putStrLn "*** Test Union All operation"            
+
+    printRTable $ juliusToRTable $
+            EtlMapStart
+            :-> (EtlR $  -- rtabNew5
+                    ROpStart
+                    :. (UnionAll (TabL rtabNew) (Tab rtabNew))
+                    :. (OrderBy [ ("MyTime",Asc),("DNumber", Asc),("Name",Asc),("MyDate",Asc)
+                                ] $ 
+                            From Previous 
+                    )
+                )
+
+    -- Test insertRTabToRTab
+    putStrLn "*** Test insertRTabToRTab function"  
+
+    printRTable $ insertRTabToRTab rtabNew $ rtabNew
+
+    printRTable $ insertRTabToRTab rtabNew $ f (\t -> t <!> "Name" == RText "Θεοδώρου") rtabNew
+
+    printRTable $ p ["Name"] rtabNew
+    printRTable $ insertRTabToRTab (p ["Name"] rtabNew) $ p ["Name"] rtabNew
+
+    -- Test Insert Into Values clause
+    putStrLn "*** Test Insert Into Values clause"
+
+    printRTable $ juliusToRTable $
+        EtlMapStart
+        :-> (EtlR $
+                ROpStart
+                :.(Insert $
+                        Into (Tab rtabNew) $
+                            Values [    ("DNumber", RDouble 23.89)
+                                        ,("MyTime", RTime $ toRTimestamp "DD/MM/YYYY HH:MI:SS" "31/10/2018 17:24:00" )
+                                        ,("Name", RText "Michael J. Fox")
+                                        ,("MyDate", RDate{rdate = "31/10/2018", dtformat = "DD/MM/YYYY"})
+                                        ,("Number", RInt 58)
+                                    ]
+                )
+            )
+
+    putStrLn "*** Test Insert Into RTuples clause"
+
+    printRTable $ juliusToRTable $
+                        EtlMapStart
+                        :-> (EtlR $
+                                ROpStart
+                                :.(Filter (From $ Tab rtabNew) $ 
+                                        FilterBy (\t -> t <!> "Name" == RText "nkarag")
+                                )
+                            )
+
+    printRTable $ juliusToRTable $
+        EtlMapStart
+        :-> (EtlR $
+                ROpStart
+                :.(Insert $
+                        Into (Tab rtabNew) $
+                            RTuples $ TabSrc $ juliusToRTable $
+                                                EtlMapStart
+                                                :-> (EtlR $
+                                                        ROpStart
+                                                        :.(Filter (From $ Tab rtabNew) $ 
+                                                                FilterBy (\t -> t <!> "Name" == RText "nkarag")
+                                                        )
+                                                    )
+                )
+                :.(OrderBy [("Name", Asc)] $ From Previous)
+            )
+
 
 
     where
