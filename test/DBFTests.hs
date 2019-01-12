@@ -1102,8 +1102,6 @@ main = do
     putStrLn "trgTab"
     printRTable $ runOrderBy [("SK", Asc)] trgTab
 
-    putStrLn "trgTab anti-join srcTab (t1 <!> \"SK\" == t2 <!> \"SK\")"
-    printRTable $ rO [("SK", Asc)] $ aJ (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK") trgTab srcTab
 
     putStrLn "upsertRTab"
     printRTable $ rO [("SK", Asc)] $
@@ -1127,6 +1125,55 @@ main = do
                                             FilterBy (\t -> isNull $ t <!> "MyDate")
                 )
                 :. (OrderBy [("SK", Asc)] $ From Previous)
+            )
+
+    putStrLn "*** Test anti-join and semi-join"
+    putStrLn "trgTab <anti-join> srcTab (t1 <!> \"SK\" == t2 <!> \"SK\")"
+    printRTable $ rO [("SK", Asc)] $ aJ (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK") trgTab srcTab
+
+    putStrLn "AntiJoin Julius clause"
+    printRTable $ juliusToRTable $
+        EtlMapStart
+        :-> (EtlR $
+                ROpStart
+                :.(AntiJoin (TabL trgTab) (Tab srcTab) $ 
+                        JoinOn (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK")
+                )
+                :.(OrderBy [("SK", Asc)] $ From Previous)
+            )
+
+    printRTable $ juliusToRTable $
+        EtlMapStart
+        :-> (EtlR $
+                ROpStart
+                :.(AntiJoinP (Tab trgTab) (TabL srcTab) $ 
+                        JoinOn (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK")
+                )
+                :.(OrderBy [("SK", Asc)] $ From Previous)
+            )
+
+    putStrLn "trgTab <semi-join> srcTab (t1 <!> \"SK\" == t2 <!> \"SK\")"
+    printRTable $ rO [("SK", Asc)] $ sJ (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK") trgTab srcTab
+
+    putStrLn "SemiJoin Julius clause"
+    printRTable $ juliusToRTable $
+        EtlMapStart
+        :-> (EtlR $
+                ROpStart
+                :.(SemiJoin (TabL trgTab) (Tab srcTab) $ 
+                        JoinOn (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK")
+                )
+                :.(OrderBy [("SK", Asc)] $ From Previous)
+            )
+
+    printRTable $ juliusToRTable $
+        EtlMapStart
+        :-> (EtlR $
+                ROpStart
+                :.(SemiJoinP (Tab trgTab) (TabL srcTab) $ 
+                        JoinOn (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK")
+                )
+                :.(OrderBy [("SK", Asc)] $ From Previous)
             )
 
     where

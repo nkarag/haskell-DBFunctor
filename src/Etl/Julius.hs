@@ -647,6 +647,17 @@ data RelationalOp =
         |   LJoin TabLiteral TabExpr TabExprJoin            -- ^ Left Join clause, based on an arbitrary join predicate function - not just equi-join - ('RJoinPredicate')
         |   RJoin TabLiteral TabExpr TabExprJoin            -- ^ Right Join clause, based on an arbitrary join predicate function - not just equi-join - ('RJoinPredicate')
         |   FOJoin TabLiteral TabExpr TabExprJoin           -- ^ Full Outer Join clause, based on an arbitrary join predicate function - not just equi-join - ('RJoinPredicate')
+        |   SemiJoin TabLiteral TabExpr TabExprJoin         
+            -- ^ Implements the semi-Join operation between two RTables (any type of join predicate is allowed)
+            -- It returns the 'RTuple's from the left 'RTable' that match with the right 'RTable'.
+            -- Note that if an 'RTuple' from the left 'RTable' matches more than one 'RTuple's from the right 'RTable'
+            -- the semi join operation will return only a single 'RTuple'.    
+        |   SemiJoinP TabExpr TabLiteral TabExprJoin        --  ^ This is a semi-Join operation to be used when the left table must be the 'Previous' value. 
+        |   AntiJoin TabLiteral TabExpr TabExprJoin         
+            -- ^ Implements the anti-Join operation between two RTables (any type of join predicate is allowed)
+            -- It returns the 'RTuple's from the left 'RTable' that DONT match with the right 'RTable'.
+        |   AntiJoinP TabExpr TabLiteral TabExprJoin        --  ^ This is a anti-Join operation to be used when the left table must be the 'Previous' value. 
+ 
         |   TabLiteral `Intersect` TabExpr                  -- ^ Intersection clause
         |   TabLiteral `Union` TabExpr                      -- ^ Union clause. Note this operation eliminates dublicate 'RTuples'
         |   TabLiteral `UnionAll` TabExpr                   -- ^ Union All clause. It is a Union operation without dublicate 'RTuple' elimination.
@@ -1332,6 +1343,62 @@ evalROpExpr (restExpression :. rop) =
             let -- create current function to be included in a RCombinedOp operation 
                 currfunc :: UnaryRTableOperation
                 currfunc = foJ joinPred tabl -- this returns a RTable -> RTable function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression                                
+
+            -- the current RCombinedOp is porduced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)
+
+        SemiJoin (TabL tabl) tabExpr (JoinOn joinPred) ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = sJ joinPred tabl -- this returns a RTable -> RTable function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression                                
+
+            -- the current RCombinedOp is porduced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)
+
+        SemiJoinP tabExpr (TabL tabl) (JoinOn joinPred) ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = (flip (sJ joinPred)) tabl -- -- this returns a RTable -> RTable function, note that flip ensures that left table will be the second argument in the (sJ joinPred) function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression                                
+
+            -- the current RCombinedOp is porduced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)
+
+        AntiJoin (TabL tabl) tabExpr (JoinOn joinPred) ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = aJ joinPred tabl -- this returns a RTable -> RTable function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression                                
+
+            -- the current RCombinedOp is porduced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)
+
+        AntiJoinP tabExpr (TabL tabl) (JoinOn joinPred) ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = (flip (aJ joinPred)) tabl -- -- this returns a RTable -> RTable function, note that flip ensures that left table will be the second argument in the (aJ joinPred) function
                 -- get previous RCombinedOp operation and table expressions
                 (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression                                
 
