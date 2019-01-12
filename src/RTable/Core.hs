@@ -316,6 +316,7 @@ module RTable.Core (
     ,RPredicate
     ,RGroupPredicate
     ,RJoinPredicate
+    ,RUpsertPredicate (..)
 
     -- ** Operation Execution
     ,runUnaryROperation
@@ -403,6 +404,10 @@ module RTable.Core (
     ,rJ
     ,runFullOuterJoin
     ,foJ
+    ,sJ
+    ,runSemiJoin
+    ,aJ
+    ,runAntiJoin
     ,joinRTuples    
     ,runUnion
     ,runUnionAll
@@ -481,7 +486,8 @@ module RTable.Core (
     ,insertAppendRTab    
     ,insertPrependRTab
     ,insertRTabToRTab
-    ,updateRTab  
+    ,updateRTab
+    ,upsertRTab  
     ,updateRTuple
     ,upsertRTuple    
     -- * Create/Alter RTable (DDL)
@@ -492,7 +498,7 @@ module RTable.Core (
     ,removeColumn    
     ,emptyRTuple
     ,createNullRTuple
-    ,createRtuple
+    ,createRTuple
     ,rtupleFromList    
     ,createRDataType
     -- * Metadata Functions
@@ -513,6 +519,7 @@ module RTable.Core (
     ,ConflictingRTableStructures (..)
     ,EmptyInputStringsInToRTimestamp (..)    
     ,UnsupportedTimeStampFormat (..)
+    ,UniquenessViolationInUpsert (..)
     --,RTimestampFormatLengthMismatch (..)
 
     -- * RTable IO Operations
@@ -1856,7 +1863,9 @@ data ROperation =
                                               -- @
                                               -- is a valid join predicate. I.e., a function which returns 'True' when two 'RTuples' must be paired)
     | RLeftJoin { jpred :: RJoinPredicate }   -- ^ Left Outer Join    
-    | RRightJoin { jpred :: RJoinPredicate }  -- ^ Right Outer Join         
+    | RRightJoin { jpred :: RJoinPredicate }  -- ^ Right Outer Join
+    | RSemiJoin { jpred :: RJoinPredicate }     -- ^ Semi-Join
+    | RAntiJoin { jpred :: RJoinPredicate }     -- ^ Anti-Join    
     | RAggregate { aggList :: [RAggOperation] -- ^ list of aggregates 
                  } -- ^ Performs aggregation operations on specific columns and returns a singleton RTable
     | RGroupBy  { 
@@ -1906,6 +1915,18 @@ type BinaryRTableOperation = RTable -> RTable -> RTable
 -- | The Join Predicate. It defines when two 'RTuple's should be paired.
 type RJoinPredicate = RTuple -> RTuple -> Bool
 
+-- | The Upsert Predicate. It defines when two 'RTuple's should be paired in a merge operation.
+-- The matching predicate must be applied on a specific set of matching columns. The source 'RTable'
+-- in the Upsert operation must return a unique set of 'RTuple's, if grouped by this set of matching columns.
+-- Otherwise an exception ('UniquenessViolationInUpsert') is thrown.
+data RUpsertPredicate = RUpsertPredicate {
+                            matchCols :: [ColumnName]
+                            ,matchPred :: RTuple -> RTuple -> Bool
+                        }
+
+-- type RUpsertPredicate = RTuple -> RTuple -> Bool
+                        
+
 -- | The Group By Predicate
 -- It defines the condition for two 'RTuple's to be included in the same group.
 type RGroupPredicate = RTuple -> RTuple -> Bool
@@ -1948,7 +1969,7 @@ raggGenericAgg ::
 raggGenericAgg aggf src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg                                 
-                ,aggFunc = \rtab -> createRtuple [(trg, aggf src rtab)]  
+                ,aggFunc = \rtab -> createRTuple [(trg, aggf src rtab)]  
         }
 
 type Delimiter = String
@@ -1964,7 +1985,7 @@ raggStrAgg ::
 raggStrAgg src trg delimiter =  RAggOperation {
                  sourceCol = src
                 ,targetCol = trg                       
-                ,aggFunc = \rtab -> createRtuple [(trg, strAggFold delimiter src rtab)]  
+                ,aggFunc = \rtab -> createRTuple [(trg, strAggFold delimiter src rtab)]  
         }
 
 -- | A helper function that implements the basic fold for the raggStrAgg aggregation        
@@ -2003,7 +2024,7 @@ raggSum ::
 raggSum src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg                                 
-                ,aggFunc = \rtab -> createRtuple [(trg, sumFold src rtab)]  
+                ,aggFunc = \rtab -> createRTuple [(trg, sumFold src rtab)]  
         }
 
 -- | A helper function in raggSum that implements the basic fold for sum aggregation        
@@ -2040,7 +2061,7 @@ raggCount ::
 raggCount src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg
-                ,aggFunc = \rtab -> createRtuple [(trg, countFold src rtab)]  
+                ,aggFunc = \rtab -> createRTuple [(trg, countFold src rtab)]  
         }
 
 
@@ -2070,12 +2091,12 @@ countFold src rtab =
 -- | The CountStar aggregate operation 
 --  Returns the number of 'RTuple's in the 'RTable' (i.e., @count(*)@ in SQL) 
 raggCountStar ::         
-        ColumnName -- ^ target column
+        ColumnName -- ^ target column to save the result aggregated value
     ->  RAggOperation
 raggCountStar trg  = RAggOperation {
                 sourceCol = ""  -- no source column required
                 ,targetCol = trg
-                ,aggFunc = \rtab -> createRtuple [(trg, countStarFold rtab)]  
+                ,aggFunc = \rtab -> createRTuple [(trg, countStarFold rtab)]  
         }
 -- | A helper function in raggCountStar that implements the basic fold for CountStar aggregation        
 countStarFold :: RTable -> RDataType
@@ -2091,7 +2112,7 @@ raggCountDist ::
 raggCountDist src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg
-                ,aggFunc = \rtab -> createRtuple [(trg, countDistFold src rtab)]  
+                ,aggFunc = \rtab -> createRTuple [(trg, countDistFold src rtab)]  
         }
 
 -- | A helper function in raggCountDist that implements the basic fold for CountDist aggregation        
@@ -2132,7 +2153,7 @@ raggAvg ::
 raggAvg src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg
-                ,aggFunc = \rtab -> createRtuple [(trg, let 
+                ,aggFunc = \rtab -> createRTuple [(trg, let 
                                                              sum = sumFold src rtab
                                                              cnt =  countFold src rtab
                                                         in case (sum,cnt) of
@@ -2150,7 +2171,7 @@ raggMax ::
 raggMax src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg
-                ,aggFunc = \rtab -> createRtuple [(trg, maxFold src rtab)]  
+                ,aggFunc = \rtab -> createRTuple [(trg, maxFold src rtab)]  
         }        
 
 
@@ -2185,7 +2206,7 @@ raggMin ::
 raggMin src trg = RAggOperation {
                  sourceCol = src
                 ,targetCol = trg
-                ,aggFunc = \rtab -> createRtuple [(trg, minFold src rtab)]  
+                ,aggFunc = \rtab -> createRTuple [(trg, minFold src rtab)]  
         }        
 
 -- | A helper function in raggMin that implements the basic fold for Min aggregation        
@@ -2264,6 +2285,8 @@ runBinaryROperation rop irtab1 irtab2 =
         RInJoin    { jpred = jpredicate } -> runInnerJoinO jpredicate irtab1 irtab2
         RLeftJoin  { jpred = jpredicate } -> runLeftJoin jpredicate irtab1 irtab2
         RRightJoin { jpred = jpredicate } -> runRightJoin jpredicate irtab1 irtab2
+        RSemiJoin    { jpred = jpredicate } -> runSemiJoin jpredicate irtab1 irtab2
+        RAntiJoin    { jpred = jpredicate } -> runAntiJoin jpredicate irtab1 irtab2        
         RUnion -> runUnion irtab1 irtab2
         RInter -> runIntersect irtab1 irtab2
         RDiff  -> runDiff irtab1 irtab2  
@@ -2310,10 +2333,10 @@ createSingletonRTable ::
 createSingletonRTable rt = V.singleton rt
 
 -- | createRTuple: Create an Rtuple from a list of column names and values
-createRtuple ::
+createRTuple ::
       [(ColumnName, RDataType)]  -- ^ input list of (columnname,value) pairs
     -> RTuple 
-createRtuple l = HM.fromList l
+createRTuple l = HM.fromList l
 
 
 
@@ -2538,7 +2561,67 @@ restrictNrows ::
 restrictNrows n r1 = V.take n r1
 -}
 
--- | RTable Inner Join Operator. A short name for the 'runInnerJoinO' function
+-- | 'RTable' anti-join operator. A short name for the 'runAntiJoin' function
+aJ = runAntiJoin
+
+-- | Implements the anti-Join operation between two RTables (any type of join predicate is allowed)
+-- It returns the 'RTuple's from the left 'RTable' that DONT match with the right 'RTable'.
+runAntiJoin ::
+    RJoinPredicate
+    -> RTable
+    -> RTable
+    -> RTable
+runAntiJoin jpred tabDriver tabProbed = 
+    if isRTabEmpty tabDriver || isRTabEmpty tabProbed
+        then
+            emptyRTable
+        else
+            d tabDriver $ sJ jpred tabDriver tabProbed 
+{-            do 
+                rtupDrv <- tabDriver
+                -- this is the equivalent of a nested loop with tabDriver playing the role of the driving table and tabProbed the probed table
+                V.foldr' (\t accum -> 
+                            if (not $ jpred rtupDrv t) 
+                                then 
+                                    -- insert joined tuple to result table (i.e. the accumulator)
+                                    insertAppendRTab (rtupDrv) accum
+                                else 
+                                    -- keep the accumulator unchanged
+                                    accum
+                        ) emptyRTable tabProbed 
+-}
+
+-- | 'RTable' semi-join operator. A short name for the 'runSemiJoin' function
+sJ = runSemiJoin
+
+-- | Implements the semi-Join operation between two RTables (any type of join predicate is allowed)
+-- It returns the 'RTuple's from the left 'RTable' that match with the right 'RTable'.
+-- Note that if an 'RTuple' from the left 'RTable' matches more than one 'RTuple's from the right 'RTable'
+-- the semi join operation will return only a single 'RTuple'.    
+runSemiJoin ::
+    RJoinPredicate
+    -> RTable
+    -> RTable
+    -> RTable
+runSemiJoin jpred tabDriver tabProbed = 
+    if isRTabEmpty tabDriver || isRTabEmpty tabProbed
+        then
+            emptyRTable
+        else 
+            do 
+                rtupDrv <- tabDriver
+                -- this is the equivalent of a nested loop with tabDriver playing the role of the driving table and tabProbed the probed table
+                V.foldr' (\t accum -> 
+                            if (jpred rtupDrv t) 
+                                then 
+                                    -- insert joined tuple to result table (i.e. the accumulator)
+                                    insertAppendRTab (rtupDrv) accum
+                                else 
+                                    -- keep the accumulator unchanged
+                                    accum
+                        ) emptyRTable tabProbed 
+
+-- | 'RTable' Inner Join Operator. A short name for the 'runInnerJoinO' function
 iJ = runInnerJoinO
 
 -- | Implements an Inner Join operation between two RTables (any type of join predicate is allowed)
@@ -3445,7 +3528,10 @@ insertPrependRTab rtup rtab =
 -- Please note that this is an __immutable__ implementation of an 'RTable' insert.
 -- This simply means that the insert operation returns a new 'RTable' and does not
 -- affect the original 'RTable'.
-insertRTabToRTab :: 
+-- Also note that the source and target 'RTable's should have the same structure.
+-- By \"structure\", we mean that the 'ColumnName's and the corresponding data types must match. Essentially what we record in the 'ColumnInfo'
+-- must be the same for the two 'RTable's. Otherwise a 'ConflictingRTableStructures' exception will be thrown.
+insertRTabToRTab ::
                 RTable -- ^ Source 'RTable' to be inserted
                 -> RTable -- ^ Target 'RTable'
                 -> RTable -- ^ Final Result
@@ -3465,6 +3551,149 @@ insertRTabToRTab src trg =
                             runUnionAll src trg
                         else 
                            throw $ ConflictingRTableStructures "Cannot run: Insert Into <TAB> RTuples, due to conflicting RTable structures." 
+
+-- | Upsert (Update+Insert, aka Merge) Operation. We provide a source 'RTable' and a matching condition ('RUpsertPredicate') to the 'RTuple's 
+-- of the target 'RTable'. An 'RTuple' from the target 'RTable' might match to a single only 'RTuple' in the source 'RTable', or not match at all. 
+-- If it is matched to more than one 'RTuple's then an exception ('UniquenessViolationInUpsert') is thrown. 
+-- When an 'RTuple' from the target 'RTable' is matched to a source 'RTuple', then the corresponding columns of the target 'RTuple' are updated
+-- with the new values provided in the source 'RTuple'. This takes place for the target 'RTuple's that match but also that satisfy the input 
+-- 'RPredicate'. Thus we can restrict further with a filter the 'RTuple's of the target 'RTable' where the update will take place.
+-- Finally, the source 'RTuple's that did not match to the target 'RTable', are inserted (appended) to the target 'RTable'
+--
+-- Please note that this is an __immutable__ implementation of an 'RTable' upsert.
+-- This simply means that the upsert operation returns a new 'RTable' and does not
+-- affect the original 'RTable'.
+-- Also note that the source and target 'RTable's should have the same structure.
+-- By \"structure\", we mean that the 'ColumnName's and the corresponding data types must match. Essentially what we record in the 'ColumnInfo'
+-- must be the same for the two 'RTable's. Otherwise a 'ConflictingRTableStructures' exception will be thrown.
+--
+-- @
+--  An Example:
+--  Source RTable: src = 
+--      Id  |   Msg         | Other
+--      ----|---------------|-------
+--      1   |   "hello2"    |"a"    
+--      2   |   "world2"    |"a"    
+--      3   |   "new"       |"a"    
+--
+--  Target RTable: trg = 
+--      Id  |   Msg         | Other
+--      ----|---------------|-------
+--      1   |   "hello1"    |"b"    
+--      2   |   "world1"    |"b"    
+--      4   |   "old"       |"b"    
+--      5   |   "hello"     |"b"    
+--
+--  >>> upsertRTab  src
+--                  RUpsertPredicate {matchCols = [\"Id\"], matchPred = \\t1 t2 -> t1 \<!\> \"Id\" == t2 \<!\> \"Id\" }
+--                  [\"Msg\"]
+--                  (\\t ->   let 
+--                              msg = case toText (t \<!\> \"Msg\") of
+--                                          Just t -> t
+--                                          Nothing -> pack ""
+--                          in (take 5 msg) == (pack "hello")
+--                  )  -- Msg like "hello%"
+--                  trg
+--
+--  Result RTable: rslt = 
+--      Id  |   Msg         | Other
+--      ----|---------------|-------
+--      1   |   "hello2"    |"b"   (Note that only column \"Msg\" has been overwritten, as per the 3rd argument) 
+--      2   |   "world1"    |"b"    
+--      3   |   "new"       |"a"    
+--      4   |   "old"       |"b"    
+--      5   |   "hello"     |"b"    
+-- @
+--
+upsertRTab ::
+    RTable -- ^ Source 'RTable', i.e., the equivalent to an SQL @USING@ subclause 
+    -> RUpsertPredicate -- ^ The 'RTuple' matching predicate for the merge operation
+
+    -> [ColumnName] -- ^ List of column names to be updated with the corresponding new values coming from the source 'RTuple's 
+                    -- that match with the target 'RTuple's based on the 'RUpsertPredicate' 
+    -> RPredicate  -- ^ A filter that specifies the target 'RTuple's to be updated
+    -> RTable -- ^ The target 'RTable'
+    -> RTable -- ^ Final Result
+upsertRTab srcTab upsPred cols fpred trgTab = 
+    {-
+        README PLEASE: Upsert Algorithm
+
+        upsertRTab srcTab upsPred cols fpred trgTab = 
+
+            insertRTabToRTab (Table S1) $ UNION (Table T1) (Table T2) (Table T3) 
+
+            where
+                Table T1 =  let 
+                                tab  = p (cols ++ (matchCols upsPred)) $ srcTab <semi-join> (f fpred trgTab) <on> (matchPred upsPred) 
+                            
+                                -- this projection will ensure that the right columns will be overwritten
+                                -- dont forget that srcTab and trgTab have the same structure, thus also the same column names 
+                            in  p (getColumnNamesFromRTab trgTab) $ tab <inner-join> (f fpred trgTab) <on> (matchPred upsPred) 
+ 
+                        --      1   |   "hello2"    |"a" 
+
+                Table T2 = (f fpred trgTab) <anti-join> srcTab <on> (matchPred upsPred)
+                        --      5   |   "hello"     |"b"    
+
+                Table T3 = f (not . fpred) trgTab
+                        --      2   |   "world1"    |"b"    
+                        --      4   |   "old"       |"b"    
+
+                Table S1 = srcTab <anti-join> trgTab <on> (matchPred upsPred)
+                        --      3   |   "new"       |"a"    
+        
+        Also, Table T1 must be unique if we group by the columns participating in upsPred (i.e., matchCols upsPred)
+
+    -}
+    if isRTabEmpty srcTab
+        then trgTab
+        else
+            if isRTabEmpty trgTab
+                then srcTab 
+                else -- both src and trg are not empty
+                    
+                    -- check that both rtables have the same structure: 
+                    --      num of columns, column data types and column names.
+                    if rtabsSameStructure srcTab trgTab 
+                        then
+                            -- check uniqueness condition at srcTab: group by the matching columns and make sure there are no dublicates
+                            if not $ isRTabEmpty $
+                                            f (\t -> t <!> "numOfRows" > 1) $
+                                            rG  (\t1 t2 -> Data.List.foldr (\col acc -> (t1 <!> col == t2 <!> col) && acc) True (matchCols upsPred))
+                                                [raggCountStar "numOfRows"]
+                                                (matchCols upsPred)
+                                                srcTab
+                                then
+                                    throw $ UniquenessViolationInUpsert "Cannot run: Upsert because the source RTable is not unique in the matching columns." 
+                                else
+                                    -- run the upsert
+                                    let
+                                        t1 =    let
+                                                    tab  = p (cols ++ (matchCols upsPred)) $ sJ (matchPred upsPred) srcTab (f fpred trgTab)
+                                                    -- debug
+                                                    -- !dummy1 = trace ("tab:\n" ++ show tab) True
+
+                                                    -- this projection will ensure that the right columns will be overwritten
+                                                    -- dont forget that srcTab and trgTab have the same structure, thus also the same column names 
+                                                in  p (getColumnNamesFromRTab trgTab) $ iJ (matchPred upsPred) tab (f fpred trgTab)  
+                                        
+                                        -- debug
+                                        -- !dummy2 = trace ("t1:\n" ++ show t1) True
+
+                                        t2 =  aJ (matchPred upsPred) (f fpred trgTab) srcTab
+
+                                        -- debug
+                                        -- !dummy3 = trace ("t2:\n" ++ show t2) True                                        
+
+                                        t3 = f (not . fpred) trgTab
+
+                                        s1 = aJ (matchPred upsPred) srcTab trgTab 
+
+                                    in insertRTabToRTab s1 $ u t1 $ u t2 t3  
+                        else 
+                           throw $ ConflictingRTableStructures "Cannot run: Upsert due to conflicting RTable structures." 
+
+    
 
 -- | Compares the structure of the input 'RTable's and returns 'True' if these are the same.
 -- By \"structure\", we mean that the 'ColumnName's and the corresponding data types must match. Essentially what we record in the 'ColumnInfo'
@@ -3560,7 +3789,7 @@ updateRTab ((colName, newVal) : rest) rpred inputRtab =
 
 -- | Update an RTuple at a specific column specified by name with a value. If the 'ColumnName'
 -- exists, then the value is updated with the input value. If the 'ColumnName' does not exist,
--- then a 'ColumnDoesNotExist' excpetion is thrown.
+-- then a 'ColumnDoesNotExist' exception is thrown.
 updateRTuple ::
            ColumnName  -- ^ key where the update will take place
         -> RDataType   -- ^ new value
@@ -3755,7 +3984,7 @@ getMaxLengthPerColumnFmt rtupFmt rtab =
                 headerLengths = Data.List.zip (getColumnNamesFromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length (T.unpack c)) (getColumnNamesFromRTab rtab))
             -- append  to the rtable also the tuple corresponding to the header (i.e., the values will be the names of the column) in order
             -- to count them also in the width calculation
-            (return $ createRtuple ls) V.++ (return $ createRtuple headerLengths)
+            (return $ createRTuple ls) V.++ (return $ createRTuple headerLengths)
 
         -- Get the max length for each column
         resultRTab = findMaxLengthperColumn lengthRTab
@@ -3790,7 +4019,7 @@ getMaxLengthPerColumn rtab =
                 headerLengths = Data.List.zip (getColumnNamesFromRTab rtab) (Data.List.map (\c -> RInt $ fromIntegral $ Data.List.length (T.unpack c)) (getColumnNamesFromRTab rtab))
             -- append  to the rtable also the tuple corresponding to the header (i.e., the values will be the names of the column) in order
             -- to count them also in the width calculation
-            (return $ createRtuple ls) V.++ (return $ createRtuple headerLengths)
+            (return $ createRTuple ls) V.++ (return $ createRTuple headerLengths)
 
         -- Get the max length for each column
         resultRTab = findMaxLengthperColumn lengthRTab
@@ -4126,3 +4355,12 @@ data ConflictingRTableStructures =
         ConflictingRTableStructures String  -- ^ Error message indicating the operation that failed.
         deriving(Eq, Show)
 instance Exception ConflictingRTableStructures
+
+-- | This exception means that we have tried an Upsert operation where the source 'RTable' does not have
+-- a unique set of 'Rtuple's if grouped by the columns used in the matching condition.
+-- This simply means that we cannot determine which of the dublicate 'RTuple's in the source 'RTable'
+-- will overwrite the target 'RTable', when the matching condition is satisfied.
+data UniquenessViolationInUpsert =
+        UniquenessViolationInUpsert String -- ^ Error message
+        deriving(Eq, Show)
+instance Exception UniquenessViolationInUpsert

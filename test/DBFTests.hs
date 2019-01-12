@@ -1082,7 +1082,52 @@ main = do
                 :.(OrderBy [("Name", Asc)] $ From Previous)
             )
 
+    -- Test upsertRTab
+    putStrLn "*** Test Upsert Operation" 
+    
+    let trgTab = addSurrogateKeyJ "SK" (0::Int) rtabNew
+        srcTab = f (\t -> t <!> "Name" == RText "Filippos" || t <!> "Name" == RText "Mr. Smith" ) $ 
+                    insertAppendRTab  
+                        (createRTuple [  ("Name", (RText "Filippos"))
+                                        ,("MyDate", RDate {rdate = "22/12/2018", dtformat = "DD/MM/YYYY"})
+                                        ,("MyTime", RTime $ toRTimestamp "DD/MM/YYYY HH:MI:SS" "22/12/2018 21:22:00") 
+                                        ,("Number", RInt 15)
+                                        ,("DNumber", RDouble 34.67)
+                                        ,("SK", RInt 14)
+                                     ]) $ 
+                            updateRTab [("Name" , RText "Mr. Smith")] (\t -> t <!> "Name" == RText "Karagiannidis") trgTab
 
+    putStrLn "srcTab"
+    printRTable $ runOrderBy [("SK", Asc)] srcTab
+    putStrLn "trgTab"
+    printRTable $ runOrderBy [("SK", Asc)] trgTab
+
+    putStrLn "trgTab anti-join srcTab (t1 <!> \"SK\" == t2 <!> \"SK\")"
+    printRTable $ rO [("SK", Asc)] $ aJ (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK") trgTab srcTab
+
+    putStrLn "upsertRTab"
+    printRTable $ rO [("SK", Asc)] $
+        upsertRTab  srcTab
+                    (RUpsertPredicate ["SK"] (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK"))
+                    ["Name"]
+                    (\t -> isNull $ t <!> "MyDate")
+                    trgTab
+
+    putStrLn "Test Upsert Julius clause"
+    printRTable $ juliusToRTable $
+        EtlMapStart
+        :-> (EtlR $
+                ROpStart
+                :. (Upsert $
+                        MergeInto (Tab trgTab) $
+                            Using (TabSrc srcTab) $
+                                MergeOn (RUpsertPredicate ["SK"] (\t1 t2 -> t1 <!> "SK" == t2 <!> "SK")) $
+                                    WhenMatchedThen $
+                                        UpdateCols ["Name"] $
+                                            FilterBy (\t -> isNull $ t <!> "MyDate")
+                )
+                :. (OrderBy [("SK", Asc)] $ From Previous)
+            )
 
     where
         myListAgg :: Text -> AggFunction

@@ -495,10 +495,6 @@ module Etl.Julius (
     ,RemoveSrcCol (..)    
     ,ByPred (..)    
     ,SetColumns (..)
-    ,IntoClause (..)
-    ,InsertSource (..)
-    ,ValuesClause (..)
-    ,TabSource (..)
     -- ** The Relational Operation Clause
     ,ROpExpr(..)    
     ,RelationalOp (..)    
@@ -512,6 +508,15 @@ module Etl.Julius (
     ,TabExprJoin (..)    
     ,ByGenUnaryOperation (..)
     ,ByGenBinaryOperation (..)
+    ,IntoClause (..)
+    ,InsertSource (..)
+    ,ValuesClause (..)
+    ,TabSource (..)
+    ,MergeInto (..)
+    ,MergeSource (..)
+    ,MergeMatchCondition (..)
+    ,WhenMatched (..)
+    ,UpdateColumns (..)
     -- * Julius Expression Evaluation
     ,evalJulius
     ,juliusToRTable
@@ -652,20 +657,91 @@ data RelationalOp =
         |   OrderBy [(ColumnName, OrderingSpec)] FromRTable     -- ^ Order By clause.
         
         {--  DML Section  -}
-        |   Update TabExpr SetColumns ByPred                -- ^ Update an 'RTable'. 
-                                                            -- Please note that this is an __immutable__ implementation of an 'RTable' update. This simply means that
-                                                            -- the update operation returns a new 'RTable' that includes all the 'RTuple's of the original 'RTable', both the ones
-                                                            -- that have been updated and the others that have not. So, the original 'RTable' remains unchanged and no update in-place
-                                                            -- takes place whatsoever.
-                                                            -- Moreover, if we have multiple threads updating an 'RTable', due to immutability, each thread \"sees\" its own copy of
-                                                            -- the 'RTable' and thus there is no need for locking the updated 'RTuple's, as happens in a common RDBMS.
-        |   Insert IntoClause                               -- ^ Insert Operation. It can insert into an 'RTable' a single 'RTuple' or a whole 'RTable'. The latter is the equivalent
-                                                            -- of an @INSERT INTO SELECT@ clause in SQL. Since, an 'RTable' can be the result of a Julius expression (playing the
-                                                            -- role of a subquery within the Insert clause, in this case).
-                                                            -- Please note that this is an __immutable__ implementation of an 'RTable' insert.
-                                                            -- This simply means that the insert operation returns a new 'RTable' and does not
-                                                            -- affect the original 'RTable'.                                                            
--- | Insert Into subclasue
+        |   Update TabExpr SetColumns ByPred
+            -- ^ Update an 'RTable'. 
+            -- Please note that this is an __immutable__ implementation of an 'RTable' update. This simply means that
+            -- the update operation returns a new 'RTable' that includes all the 'RTuple's of the original 'RTable', both the ones
+            -- that have been updated and the others that have not. So, the original 'RTable' remains unchanged and no update in-place
+            -- takes place whatsoever.
+            -- Moreover, if we have multiple threads updating an 'RTable', due to immutability, each thread \"sees\" its own copy of
+            -- the 'RTable' and thus there is no need for locking the updated 'RTuple's, as happens in a common RDBMS.
+
+        |   Insert IntoClause
+           -- ^ Insert Operation. It can insert into an 'RTable' a single 'RTuple' or a whole 'RTable'. The latter is the equivalent
+            -- of an @INSERT INTO SELECT@ clause in SQL. Since, an 'RTable' can be the result of a Julius expression (playing the
+            -- role of a subquery within the Insert clause, in this case).
+            -- Please note that this is an __immutable__ implementation of an 'RTable' insert.
+            -- This simply means that the insert operation returns a new 'RTable' and does not
+            -- affect the original 'RTable'. 
+            -- Also note that the source and target 'RTable's should have the same structure.
+            -- By \"structure\", we mean that the 'ColumnName's and the corresponding data types must match. Essentially what we record in the 'ColumnInfo'
+            -- must be the same for the two 'RTable's. Otherwise a 'ConflictingRTableStructures' exception will be thrown.
+
+        |   Upsert MergeInto                                
+            -- ^ Upsert (Update+Insert, aka Merge) Operation. We provide a source 'RTable' and a matching condition ('RUpsertPredicate') to the 'RTuple's 
+            -- of the target 'RTable'. An 'RTuple' from the target 'RTable' might match to a single only 'RTuple' in the source 'RTable', or not match at all. 
+            -- If it is matched to more than one 'RTuple's then an exception ('UniquenessViolationInUpsert')is thrown. 
+            -- When an 'RTuple' from the target 'RTable' is matched to a source 'RTuple', then the corresponding columns of the target 'RTuple' are updated
+            -- with the new values provided in the source 'RTuple'. This takes place for the target 'RTuple's that match but also that satisfy the input 
+            -- 'RPredicate'. Thus we can restrict further with a filter the 'RTuple's of the target 'RTable' where the update will take place.
+            -- Finally, the source 'RTuple's that did not match to the target 'RTable', are inserted (appended) to the target 'RTable'
+            --
+            -- Please note that this is an __immutable__ implementation of an 'RTable' upsert.
+            -- This simply means that the upsert operation returns a new 'RTable' and does not
+            -- affect the original 'RTable'.
+            -- Also note that the source and target 'RTable's should have the same structure.
+            -- By \"structure\", we mean that the 'ColumnName's and the corresponding data types must match. Essentially what we record in the 'ColumnInfo'
+            -- must be the same for the two 'RTable's. Otherwise a 'ConflictingRTableStructures' exception will be thrown.
+            --
+            -- @
+            --  An Example:
+            --  Source RTable: srcTab = 
+            --      Id  |   Msg         | Other
+            --      ----|---------------|-------
+            --      1   |   "updated"   |"a"    
+            --      2   |   "world2"    |"a"    
+            --      3   |   "inserted"  |"a"    
+            --
+            --  Target RTable: trgTab = 
+            --      Id  |   Msg         | Other
+            --      ----|---------------|-------
+            --      1   |   "hello1"    |"b"    
+            --      2   |   "world1"    |"b"    
+            --      4   |   "old"       |"b"    
+            --      5   |   "hello"     |"b"    
+            --            
+            --  juliusToRTable $
+            --      EtlMapStart
+            --          :-> (EtlR $
+            --                  ROpStart
+            --                  :.(Upsert $ 
+            --                      MergeInto (Tab trgTab) $
+            --                          Using (TabSrc srcTab) $
+            --                              MergeOn (RUpsertPredicate [\"Id\"] (\\t1 t2 -> t1 \<!\> \"Id\" == t2 \<!\> \"Id\")) $  -- merge condition: srcTab.Id == trgTab.Id
+            --                                  WhenMatchedThen $
+            --                                      UpdateCols [\"Msg\"] $
+            --                                          FilterBy (\\t ->    let
+            --                                                                msg = case toText (t \<!\> \"Msg\") of
+            --                                                                  Just t -> t
+            --                                                                  Nothing -> pack ""
+            --                                                              in (take 5 msg) == (pack "hello")
+            --                                                   )  -- Msg like "hello%"
+            --                  )
+            --              )
+            --
+            --  Result RTable: 
+            --      Id  |   Msg         | Other
+            --      ----|---------------|-------
+            --      1   |   "updated"   |"b"   -- Updated RTuple. Note that only column \"Msg\" has been overwritten, as per the UpdateCols subclause
+            --      2   |   "world1"    |"b"   -- Not affected due to FilterBy predicate
+            --      3   |   "inserted"  |"a"   -- Inserted RTuple
+            --      4   |   "old"       |"b"   -- Not affected due to MergeOn condition
+            --      5   |   "hello"     |"b"   -- Not affected due to MergeOn condition  
+            -- @
+            --
+
+
+-- | Insert Into subclause
 data IntoClause = Into TabExpr InsertSource
 
 -- | Subclause on 'Insert' clause. Defines the source of the insert operation.
@@ -674,6 +750,21 @@ data IntoClause = Into TabExpr InsertSource
 -- The former is similar in concept with an @INSERT INTO VALUES@ SQL clause, and the latter is similar 
 -- in concept with an @INSERT INTO SELECT@ SQL clause.
 data InsertSource = Values ValuesClause | RTuples TabSource
+
+-- | Merge Into subclause
+data MergeInto = MergeInto TabExpr MergeSource
+
+-- | Upsert source subclause (Using clause in @SQL@)
+data MergeSource = Using TabSource MergeMatchCondition
+
+-- | Upsert matching condition subclause
+data MergeMatchCondition =  MergeOn RUpsertPredicate WhenMatched
+
+-- | When Matched subclause of Upsert
+data WhenMatched = WhenMatchedThen UpdateColumns
+
+-- | Update columns subclause of Upsert
+data UpdateColumns = UpdateCols [ColumnName] ByPred 
 
 -- | This subclause refers to the source 'RTable' that will feed an 'Insert' operation
 data TabSource = TabSrc RTable 
@@ -1114,7 +1205,7 @@ data TabExprEnhanced = TXE TabExpr | EmptyTab
 -- | Evaluates (parses) a Relational Operation Expression of the form 
 --
 -- @
---  ROp :. ROp :. ... :. ROpStart
+--  ROpStart :. ROp  ... :. ROp 
 -- @
 --
 -- and produces the corresponding ROperation data type.
@@ -1371,7 +1462,7 @@ evalROpExpr (restExpression :. rop) =
         Insert (Into tabExpr (Values colValuePairs)) ->
             let -- create current function to be included in a RCombinedOp operation 
                 currfunc :: UnaryRTableOperation
-                currfunc = insertAppendRTab (createRtuple colValuePairs) -- this returns an RTable -> RTable function
+                currfunc = insertAppendRTab (createRTuple colValuePairs) -- this returns an RTable -> RTable function
                 -- get previous RCombinedOp operation and table expressions
                 (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression
 
@@ -1387,6 +1478,31 @@ evalROpExpr (restExpression :. rop) =
             let -- create current function to be included in a RCombinedOp operation 
                 currfunc :: UnaryRTableOperation
                 currfunc = insertRTabToRTab rtabsrc -- this returns an RTable -> RTable function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression
+
+            -- the current RCombinedOp is produced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)                    
+
+        -- this is the Upsert (Update+Insert, aka Merge) Operation.
+        Upsert (    
+                    MergeInto tabExpr ( 
+                                        Using (TabSrc srcTab) ( 
+                                                                MergeOn upsPred ( 
+                                                                                   WhenMatchedThen ( 
+                                                                                                        UpdateCols cols (FilterBy fpred)
+                                                                                                    )
+                                                                                )
+                                                              )
+                                      )
+                ) ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = upsertRTab srcTab upsPred cols fpred -- this returns an RTable -> RTable function
                 -- get previous RCombinedOp operation and table expressions
                 (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression
 
@@ -1452,12 +1568,11 @@ addSurrogateKey cname initVal  =
 --  GenUnaryOp (On Tab rtab1) $ ByUnaryOp (addSurrogateKeyJ "TxSK" 0)
 -- @
 -- 
-addSurrogateKeyJ :: Integral a =>    
-       ColumnName    -- ^ The name of the surrogate key column
-    -- -> Integer       -- ^ The initial value of the Surrogate Key will be the value of this parameter    
-    -> a             -- ^ The initial value of the Surrogate Key will be the value of this parameter    
-    -> RTable        -- ^ Input RTable
-    -> RTable        -- ^ Output RTable
+addSurrogateKeyJ :: Integral a 
+                 =>  ColumnName    -- ^ The name of the surrogate key column
+                 -> a             -- ^ The initial value of the Surrogate Key will be the value of this parameter    
+                 -> RTable        -- ^ Input RTable
+                 -> RTable        -- ^ Output RTable
 addSurrogateKeyJ cname initVal  =   
     updateSKvalue . (addColumn cname (RInt (fromIntegral initVal))) 
             where
