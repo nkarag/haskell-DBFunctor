@@ -1176,6 +1176,22 @@ main = do
                 :.(OrderBy [("SK", Asc)] $ From Previous)
             )
 
+    putStrLn "*** Test deleteRTab"
+    printRTable trgTab
+    printRTable $ deleteRTab (\t -> t <!> "SK" > RInt 7) trgTab
+
+    putStrLn "*** Test Delete clause"
+    printRTable $ juliusToRTable $
+        EtlMapStart
+        :-> (EtlR $
+                ROpStart
+                :.(Delete (From $ Tab trgTab) $ 
+                        Where (\t -> t <!> "SK" > RInt 7))
+                :.(Delete (From Previous) $ 
+                        Where (\t -> t <!> "SK" == RInt 3))
+            )
+
+
     where
         myListAgg :: Text -> AggFunction
         myListAgg delimiter col rtab = 

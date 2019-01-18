@@ -486,7 +486,8 @@ module RTable.Core (
     ,insertAppendRTab    
     ,insertPrependRTab
     ,insertRTabToRTab
-    ,updateRTab
+    ,deleteRTab    
+    ,updateRTab    
     ,upsertRTab  
     ,updateRTuple
     ,upsertRTuple    
@@ -3563,6 +3564,9 @@ insertRTabToRTab src trg =
 -- Please note that this is an __immutable__ implementation of an 'RTable' upsert.
 -- This simply means that the upsert operation returns a new 'RTable' and does not
 -- affect the original 'RTable'.
+-- Moreover, if we have multiple threads updating an 'RTable', due to immutability, each thread \"sees\" its own copy of
+-- the 'RTable' and thus there is no need for locking the updated 'RTuple's, as happens in a common RDBMS.
+--
 -- Also note that the source and target 'RTable's should have the same structure.
 -- By \"structure\", we mean that the 'ColumnName's and the corresponding data types must match. Essentially what we record in the 'ColumnInfo'
 -- must be the same for the two 'RTable's. Otherwise a 'ConflictingRTableStructures' exception will be thrown.
@@ -3752,6 +3756,19 @@ rtuplesSameStructure t1 t2 =
                     &&
         ( (cinfo_list2 \\ cinfo_list1) == [] )
 
+
+
+-- | Delete 'RTuple's from an 'RTable' based on an 'RPredicate'.
+-- Please note that this is an __immutable__ implementation of an 'RTable' update. This simply means that
+-- the delete operation returns a new 'RTable'. So, the original 'RTable' remains unchanged and no deletion in-place
+-- takes place whatsoever.
+-- Moreover, if we have multiple threads deleting an 'RTable', due to immutability, each thread \"sees\" its own copy of
+-- the 'RTable' and thus there is no need for locking the deleted 'RTuple's, as happens in a common RDBMS.
+deleteRTab ::
+        RPredicate  -- ^ Predicate specifying the 'Rtuple's that must be deleted
+    ->  RTable      -- ^ 'RTable' that the deletion will be applied
+    ->  RTable      -- ^ Result 'RTable'
+deleteRTab rpred rtab = f (not . rpred) rtab -- simply omit the rtuples satisfying the predicates    
 
 -- | Update an RTable. The input includes a list of (ColumnName, new Value) pairs.
 -- Also a filter predicate is specified, in order to restrict the update only to those

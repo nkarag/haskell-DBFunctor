@@ -494,6 +494,7 @@ module Etl.Julius (
     ,TabExpr (..)          
     ,RemoveSrcCol (..)    
     ,ByPred (..)    
+    ,ByDelPred (..)
     ,SetColumns (..)
     -- ** The Relational Operation Clause
     ,ROpExpr(..)    
@@ -605,7 +606,10 @@ data OnRTable = On TabExpr
 data RemoveSrcCol = RemoveSrc | DontRemoveSrc
 
 -- | An 'RTuple' predicate clause.
-data ByPred = FilterBy RPredicate
+data ByPred = FilterBy RPredicate 
+
+-- | Predicate for Deletion Operation
+data ByDelPred = Where RPredicate
 
 -- | A Relational Operation Expression ('ROpExpr') is a sequence of one or more Relational Algebra Operations applied on a input 'RTable'.
 -- It is a sub-expression within a Julius Expression ('ETLMappingExpr') and we use it whenever we want to apply relational algebra operations on an RTable
@@ -668,6 +672,14 @@ data RelationalOp =
         |   OrderBy [(ColumnName, OrderingSpec)] FromRTable     -- ^ Order By clause.
         
         {--  DML Section  -}
+        |   Delete FromRTable ByDelPred     
+            -- ^ Delete operation. Deletes the 'RTuple's from an 'RTable' based on an 'RPredicate'.
+            -- Please note that this is an __immutable__ implementation of an 'RTable' update. This simply means that
+            -- the delete operation returns a new 'RTable'. So, the original 'RTable' remains unchanged and no deletion in-place
+            -- takes place whatsoever.
+            -- Moreover, if we have multiple threads deleting an 'RTable', due to immutability, each thread \"sees\" its own copy of
+            -- the 'RTable' and thus there is no need for locking the deleted 'RTuple's, as happens in a common RDBMS.
+
         |   Update TabExpr SetColumns ByPred
             -- ^ Update an 'RTable'. 
             -- Please note that this is an __immutable__ implementation of an 'RTable' update. This simply means that
@@ -1509,6 +1521,22 @@ evalROpExpr (restExpression :. rop) =
                     RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
                     -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
                     ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)
+
+        -- this the RTable Delete operation
+        Delete (From tabExpr) (Where deletePred) ->
+            let -- create current function to be included in a RCombinedOp operation 
+                currfunc :: UnaryRTableOperation
+                currfunc = deleteRTab deletePred -- this returns a RTable -> RTable function
+                -- get previous RCombinedOp operation and table expressions
+                (prevOperation, prevTXEleft, prevTXEright) = evalROpExpr restExpression
+
+            -- the current RCombinedOp is produced by composing the current function with the previous function
+            in case prevOperation of
+                    -- in this case the previous operation is a valid non-empty operation and must be composed with the current one
+                    RCombinedOp {rcombOp = prevfunc} -> (RCombinedOp {rcombOp = currfunc . prevfunc}, prevTXEleft, EmptyTab)
+                    -- in this case the current Operation is the last one (the previous is just empty and must be ignored)
+                    ROperationEmpty ->  (RCombinedOp {rcombOp = currfunc}, TXE tabExpr, EmptyTab)                    
+
 
         -- this is the RTable update operation
         Update tabExpr (Set colValuePairs) (FilterBy filterPred) ->
