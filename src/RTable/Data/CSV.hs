@@ -29,7 +29,7 @@ For the 'CSV' data type this module uses the Cassava library ("Data.Csv")
 module RTable.Data.CSV
    (
         -- * The CSV data type
-        CSV
+        CSV (..)
         ,Row
         ,Column                 
         ,CSVOptions(..)
@@ -157,8 +157,10 @@ instance RTabular MyType where
     fromRTable mf rt = MyType (5::Int)-}
 
 -- | Definition of a CSV file.
--- Treating CSV data as opaque byte strings (see 'Csv' type in Cassava library - "Data.Csv": type Csv = Vector Record)
-type CSV = V.Vector Row -- i.e., CV.Csv
+-- Treating CSV data as opaque byte strings
+newtype CSV = CSV {csv :: V.Vector Row}    
+
+-- type CSV = V.Vector Row -- i.e., CV.Csv
 
 -- | CSV data are \"Tabular\" data thus implement the 'RTabular' interface
 instance RTabular CSV where
@@ -168,11 +170,9 @@ instance RTabular CSV where
 
 -- | Definition of a CSV Row.
 -- Essentially a Row is just a Vector of ByteString
--- (type Record = Vector Field)
 type Row = V.Vector Column -- i.e., CV.Record
 
--- | Definition of a CSV Record column.
--- (type Field = ByteString)
+-- | Definition of a CSV column.
 type Column = CV.Field   
 
 -- This typeclass instance is required by CV.decodeByName
@@ -219,7 +219,7 @@ readCSV f = do
                             in csv
                 Right csv -> csv            --Right (hdr, csv) -> csv
         --}        
-    return csvResult
+    return $ CSV csvResult
 
 -- | Yes or No sum type
 data YesNo = Yes | No
@@ -259,7 +259,7 @@ readCSVwithOptions opt f = do
 
                                         csvData
 -}
-    return csvResult
+    return $ CSV csvResult
 
 
 
@@ -276,7 +276,7 @@ writeCSV ::
        FilePath  -- ^ the csv file to be created
     -> CSV       -- ^  input 'CSV'
     -> IO()
-writeCSV f csv = do
+writeCSV f (CSV csv) = do
     let csvBS = CV.encode (V.toList csv)
     BL.writeFile f csvBS
 
@@ -292,7 +292,7 @@ printCSVFile csv = putStr csv
 printCSV ::
     CSV     -- ^ input 'CSV' to be printed on screen
     -> IO()
-printCSV csv = do
+printCSV (CSV csv) = do
     -- convert each ByteString field to Text
     {--let csvText = V.map (\r -> V.map (decodeUtf32LE) r) csv
     let csvBS = CV.encode (V.toList csvText)--}
@@ -321,7 +321,7 @@ csvToRTable ::
     RTableMData 
     -> CSV 
     -> RTable
-csvToRTable m c = 
+csvToRTable m (CSV c) = 
     V.map (row2RTuple m) c
     where
         row2RTuple :: RTableMData -> Row -> RTuple
@@ -393,7 +393,7 @@ rtableToCSV ::
         -> RTable   -- ^ input RTable
         -> CSV      -- ^ output CSV
 rtableToCSV m t =       
-    (createCSVHeader m) V.++ (V.map (rtuple2row m) t)
+    CSV $ (csv $ createCSVHeader m) V.++ (V.map (rtuple2row m) t)
     where
         rtuple2row :: RTableMData -> RTuple -> Row 
         rtuple2row md rt =
@@ -452,7 +452,7 @@ rtableToCSV m t =
             let listOfColNames = toListColumnName (rtuplemdata md) --Prelude.map (fst) $ (rtuplemdata md) --HM.toList (rtuplemdata md)
                 listOfByteStrings = Prelude.map (\n -> CV.toField n) listOfColNames  
                 headerRow = V.fromList listOfByteStrings
-            in  V.singleton headerRow
+            in  CSV $ V.singleton headerRow
 
 
 -- In order to be able to decode a CSV bytestring into an RTuple,
@@ -498,8 +498,8 @@ rtableToCSV m t =
         return rtup
 --}
 
--- | Necessary instance in order to convert a CSV file column value to an 'RDataType' value.
-instance CV.FromField RDataType where
+-- Necessary instance in order to convert a CSV file column value to an 'RDataType' value.
+{-instance CV.FromField RDataType where
   parseField dt = do
         -- dt is a ByteString (i.e., a Field) representing some value that we have read from the CSV file (we dont know its type)
         -- we need to construct an RDataType from this value and then wrap it into a Parser Monad and return it
@@ -517,7 +517,7 @@ instance CV.FromField RDataType where
 
         -- wrap the RDataType into a Parser Monad and return it
         pure rdata
-
+-}
 
 {--
     -- #### NOTE ###
@@ -540,7 +540,7 @@ instance CV.FromField RDataType where
        pure rdata
 --}
 
--- | In order to encode an input RTable into a CSV bytestring 
+-- In order to encode an input RTable into a CSV bytestring 
 -- we need to make Rtuple an instance of the ToNamedRecord typeclass and
 -- implement the toNamedRecord function. 
 -- Where:
@@ -567,7 +567,7 @@ instance CV.FromField RDataType where
 --              type Field = ByteString
 -- @
 --
-instance CV.ToField RDataType where
+{-instance CV.ToField RDataType where
     toField rdata = case rdata of
             RInt i      -> encode (i::Integer)
             --RChar c     -> encode (c::Char)
@@ -578,17 +578,10 @@ instance CV.ToField RDataType where
             RDouble d   -> encode (d::Double)
             Null        -> encode (""::String)
             RDate d f   -> encodeUtf8 d -- encode (d::String)
+-}
 
-{--instance CV.ToField RDataType where
-    toField rdata = case rdata of
-            (i::Int)    -> encode (i::Int)
-            -- RText t     -> encode (t::String) 
-            (t::T.Text)     -> encodeUtf8 t -- encodeUtf8 :: Text -> ByteString
-            (d::Double)   -> encode (d::Double)
-            Null        -> encode (""::String)
---}
 
--- | csv2rtable : turn a input CSV to an RTable.
+-- csv2rtable : turn a input CSV to an RTable.
 -- The input CSV will be a ByteString. We assume that the first line is the CSV header,
 -- including the Column Names. The RTable that will be created will have as column names the headers appearing
 -- in the first line of the CSV.
@@ -613,16 +606,16 @@ instance CV.ToField RDataType where
 --              type Field = ByteString
 -- @
 -- See RTable module for these instance
-csv2rtable :: 
+{-csv2rtable :: 
        BL.ByteString  -- ^ input CSV (we asume that this CSV has a header in the 1st line)
     -> RTable         -- ^ output RTable
 csv2rtable csv = 
     case CV.decodeByName csv of
         Left e -> emptyRTable
         Right (h, v) -> v
+-}
 
-
--- | rtable2csv: encode an RTable into a CSV bytestring
+-- rtable2csv: encode an RTable into a CSV bytestring
 -- The first line of the CSV will be the header, which compirses of the column names.
 --
 -- Internally we use CV.encodeByName to achieve this decoding
@@ -659,15 +652,15 @@ csv2rtable csv =
 --              type Field = ByteString
 -- @
 -- See 'RTable' module for these instance
-rtable2csv ::
+{-rtable2csv ::
        RTable           -- ^ input RTable
     -> BL.ByteString    -- ^ Output ByteString
 rtable2csv rtab = 
     CV.encodeByName (csvHeaderFromRtable rtab) (V.toList rtab)
+-}
+
 
 -- | creates a 'Data.Csv.Header' (as defined in "Data.Csv") from an 'RTable'
---      type Header = Vector Name
---      type Name = ByteString
 csvHeaderFromRtable ::
                  RTable
               -> CV.Header
@@ -677,17 +670,18 @@ csvHeaderFromRtable rtab =
                 colListPacked = Prelude.map (encode . T.unpack) colList  -- turn it into a list of ByteStrings ([ByteString])
                 header = V.fromList colListPacked
             in header
+
 -- ##################################################
 -- *  Vector oprtations on CSV
 -- ##################################################
 
 -- | O(1) First row
 headCSV :: CSV -> Row
-headCSV = V.head
+headCSV = V.head . csv
 
 -- | O(1) Yield all but the first row without copying. The CSV may not be empty.
 tailCSV :: CSV -> CSV
-tailCSV = V.tail
+tailCSV = CSV . V.tail . csv
 
 
 -- ##################################################
@@ -705,7 +699,12 @@ tailCSV = V.tail
 -- ##################################################
 
 -- | selectNrows: Returns  the first N rows from a CSV file
-selectNrows::
+selectNrows :: 
+       Int             -- ^ Number of rows to select
+    -> CSV   -- ^ Input csv 
+    -> CSV   -- ^ Output csv
+selectNrows n icsv = CSV $ V.take n (csv icsv)
+{-selectNrows::
        Int             -- ^ Number of rows to select
     -> BL.ByteString   -- ^ Input csv 
     -> BL.ByteString   -- ^ Output csv
@@ -713,7 +712,7 @@ selectNrows n csvi =
     let rtabi = csv2rtable csvi
         rtabo = limit n rtabi -- restrictNrows n rtabi
     in rtable2csv rtabo
-
+-}
 -- | Column projection on an input CSV file where 
 -- desired columns are defined by position (index)
 -- in the CSV.
@@ -721,16 +720,16 @@ projectByIndex ::
              [Int]  -- ^ input list of column indexes
           -> CSV    -- ^ input csv
           -> CSV    -- ^ output CSV
-projectByIndex inds icsv = 
-    V.foldr (prj) V.empty icsv
+projectByIndex inds (CSV icsv) = 
+    V.foldr (prj) (CSV $ V.empty) icsv
     where
         prj :: Row -> CSV -> CSV
-        prj row acc = 
+        prj row (CSV acc) = 
             let 
                 -- construct new row including only projected columns
                 newrow = V.fromList $ Data.List.map (\i -> row V.! i) inds
             in -- add new row in result vector
-                V.snoc acc newrow
+                CSV $ V.snoc acc newrow
 
 -- #####  Exceptions Definitions
 
