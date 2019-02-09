@@ -40,6 +40,7 @@ dependencies:
 - deepseq
 # for Data.String.Utils
 - MissingH
+- time
 
 
 library:

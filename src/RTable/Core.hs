@@ -435,7 +435,9 @@ module RTable.Core (
     ,decodeColValue
     -- ** Date/Time
     ,toRTimestamp
-    ,createRTimestamp    
+    ,createRTimestamp
+    ,toUTCTime
+    ,fromUTCTime    
     ,rTimestampToRText
     ,stdTimestampFormat
     ,stdDateFormat
@@ -636,6 +638,9 @@ import Control.Exception
 import GHC.Generics     (Generic)
 import Control.DeepSeq
 import Data.String.Utils (replace)
+
+import Data.Time.Clock (UTCTime(..), diffTimeToPicoseconds, secondsToDiffTime)
+import Data.Time.Calendar (Day, toGregorian, fromGregorian)
 
 -- import Control.Monad.IO.Class (liftIO)
 
@@ -1378,6 +1383,24 @@ toRTimestamp fmt stime =
                     then throw $ UnsupportedTimeStampFormat fmt
                     else parseFormat2 restFormatFinal restTstampFinal newMap
 
+-- | Convert an 'RTimestamp' value to a Universal Time value ('UTCTime')
+toUTCTime :: RTimestamp -> UTCTime
+toUTCTime (RTimestampVal yy mm dd hh24 mins ss) =
+    let day = fromGregorian (toInteger $ yy::Integer) mm dd
+        secs = secondsToDiffTime $ (toInteger $ hh24*60*60 + mm*60 + ss  :: Integer)
+    in UTCTime day secs 
+
+-- | Convert a Universal Time value ('UTCTime') to an 'RTimestamp' value
+fromUTCTime :: UTCTime -> RTimestamp
+fromUTCTime utc = 
+    let UTCTime day s = utc
+        secs =  round $ ((1.0e-12::Double) *) $ (fromInteger $ diffTimeToPicoseconds s)  ::Int
+        (yy, mm, dd) = toGregorian day
+        hh24 = (secs `div` 60) `div` 60
+        mins =  (secs `div` 60) `rem` 60
+        ss = (secs `rem` (60*60)) `rem` 60
+    in -- RTimestampVal (fromIntegral yy) mm dd hh24 mins ss
+        RTimestampVal {year = (fromIntegral yy), month = mm, day = dd, hours24 = hh24, minutes = mins, seconds = ss}
 
 -- | Search for the first occurence of a substring within a 'String' and return the 1st character position,
 -- or 'Nothing' if the substring is not found.
