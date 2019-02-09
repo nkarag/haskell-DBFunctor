@@ -2430,10 +2430,11 @@ rdatatypeFoldl' f accum rtab = V.foldl' f accum rtab
 rtabMap :: (RTuple -> RTuple) -> RTable -> RTable
 rtabMap f rtab = V.map f rtab 
 
--- Map function over an 'RTuple'.
+-- | O(n) Transform this 'RTuple' by applying a function to every value
 rtupleMap :: (RDataType -> RDataType) -> RTuple -> RTuple
 rtupleMap f t = HM.map f t 
 
+-- | O(n) Transform this 'RTuple' by applying a function to every value
 rtupleMapWithKey :: (ColumnName -> RDataType -> RDataType) -> RTuple -> RTuple
 rtupleMapWithKey f t = HM.mapWithKey f t
 
