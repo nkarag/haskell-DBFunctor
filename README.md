@@ -329,7 +329,7 @@ dependencies:
 Also, don't forget to add to your stack.yaml file the line:
 ```
    extra-deps:
-    - DBFunctor-0.1.0.0
+    - DBFunctor-0.1.1.0
 ```
 #### 5. Build and run you project
 ```
