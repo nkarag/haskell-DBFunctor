@@ -1,5 +1,5 @@
 name:                DBFunctor
-version:             0.1.1.0
+version:             0.1.1.1
 github:              "nkarag/haskell-DBFunctor"
 license:             BSD3
 author:              "Nikos Karagiannidis"
