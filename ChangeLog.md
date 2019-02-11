@@ -33,3 +33,6 @@ Fix:
 - When comparing RDate types, convert them first to RTimeStamps and then compare these ones
 - The previous point apply it also to the Eq instance for RDataType.
 
+### 0.1.1.1
+- bumped a version number (the least significant) in order to upload on hackage a new version with correct github links
+
