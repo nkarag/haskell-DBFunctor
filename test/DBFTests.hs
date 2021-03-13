@@ -1191,6 +1191,23 @@ main = do
                         Where (\t -> t <!> "SK" == RInt 3))
             )
 
+    putStrLn "*** Test do-notation"
+
+    putStrLn "This is from Julius"
+    printRTable $ juliusToRTable $
+        EtlMapStart
+                :-> (EtlR $
+                        ROpStart
+                        :.  (Filter (From $ Tab rtab) $ FilterBy (\t -> t!"Name" == T.RText {T.rtext = "Karagiannidis"}))
+                        :.  (Join (TabL rtabNew12) (Previous) $ JoinOn (\t1 t2 -> t1!"Number" == t2!"Number"))
+                        :.  (Select ["Name","MyTime","Number", "ColNew2"] $ From Previous)
+                    )
+
+    putStrLn "This is from do-notation"
+    printRTable $ do
+        result1 <- f (\t -> t!"Name" == T.RText {T.rtext = "Karagiannidis"}) rtabNew
+        result2 <- iJ (\t1 t2 -> t1!"Number" == t2!"Number") rtabNew12 (pure result1)
+        p ["Name","MyTime","Number", "ColNew2"] (pure result2)
 
     where
         myListAgg :: Text -> AggFunction
