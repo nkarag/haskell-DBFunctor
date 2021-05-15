@@ -39,7 +39,7 @@ dependencies:
 - transformers
 - deepseq
 # for Data.String.Utils
-- MissingH
+# - MissingH
 - time
 
 

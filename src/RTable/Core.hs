@@ -261,6 +261,7 @@ SYS,BOOTSTRAP$,04/14/2014 13:53:43
             ,RecordWildCards 
             ,DeriveGeneric       -- Allow automatic deriving of instances for the Generic typeclass  (see Text.PrettyPrint.Tabulate.Example)
             ,DeriveDataTypeable  -- Enable automatic deriving of instances for the Data typeclass    (see Text.PrettyPrint.Tabulate.Example)
+            ,ExistentialQuantification
             {--
                 :set -XDeriveGeneric
                 :set -XDeriveDataTypeable
@@ -637,7 +638,7 @@ import Control.Exception
 
 import GHC.Generics     (Generic)
 import Control.DeepSeq
-import Data.String.Utils (replace)
+-- import Data.String.Utils (replace)
 
 import Data.Time.Clock (UTCTime(..), diffTimeToPicoseconds, secondsToDiffTime)
 import Data.Time.Calendar (Day, toGregorian, fromGregorian)
@@ -752,6 +753,10 @@ data ColumnDType = UknownType | Integer | Varchar | Date Text | Timestamp Text |
 -- This is a strict data type, meaning whenever we evaluate a value of type 'RDataType', 
 -- there must be also evaluated all the fields it contains.
 data RDataType = 
+      -- forall a. (Num a, Show a) => RNum a
+      -- |
+      -- RUTCTime { rutct :: !UTCTime}
+      -- |
       RInt { rint :: !Integer }
     -- RChar { rchar :: Char }
       | RText { rtext :: !T.Text }
@@ -1162,7 +1167,7 @@ instance Ord RTimestamp where
 -- * For minutes: @MI@, e.g., @"01"@, @"1"@, @"59"@
 -- * For seconds: @SS@, e.g., @"01"@, @"1"@, @"59"@
 --
--- Example of a typical format string is: @"DD\/MM\/YYYY HH:MI:SS@
+-- Example of a typical format string is: @"DD\/MM\/YYYY HH:MI:SS"@
 -- 
 -- If no valid format pattern is found then an 'UnsupportedTimeStampFormat' exception is thrown
 --
@@ -1179,7 +1184,7 @@ toRTimestamp fmt stime =
         else 
             let 
                 -- replace HH24 to HH
-                formatSpec = Data.String.Utils.replace "HH24" "HH" 
+               -- formatSpec = Data.String.Utils.replace "HH24" "HH" 
 
             ------ New logic
  
