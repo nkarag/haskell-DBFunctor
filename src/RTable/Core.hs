@@ -262,6 +262,7 @@ SYS,BOOTSTRAP$,04/14/2014 13:53:43
             ,DeriveGeneric       -- Allow automatic deriving of instances for the Generic typeclass  (see Text.PrettyPrint.Tabulate.Example)
             ,DeriveDataTypeable  -- Enable automatic deriving of instances for the Data typeclass    (see Text.PrettyPrint.Tabulate.Example)
             ,ExistentialQuantification
+            ,StandaloneDeriving
             {--
                 :set -XDeriveGeneric
                 :set -XDeriveDataTypeable
@@ -361,7 +362,7 @@ module RTable.Core (
     >>> let rop1 = RFilter (\t-> t<!>"col1" > 2)  
 
     >>> -- define another filter operation col1 > 3
-    >>> let rop2 = RFilter (\t-> t<!>"col1" > 3)  
+    >>> let rop2 = RFilterStandaloneDeriving (\t-> t<!>"col1" > 3)  
 
     >>> -- Composition of RTable operations via (.) (rop1 returns 2 RTuples and rop2 returns 1 RTuple)
     >>> printRTable $ (ropU rop2) . (ropU rop1) $ tab1
@@ -753,14 +754,9 @@ data ColumnDType = UknownType | Integer | Varchar | Date Text | Timestamp Text |
 -- This is a strict data type, meaning whenever we evaluate a value of type 'RDataType', 
 -- there must be also evaluated all the fields it contains.
 data RDataType = 
-      -- forall a. (Num a, Show a) => RNum a
-      -- |
-      -- RUTCTime { rutct :: !UTCTime}
-      -- |
-      RInt { rint :: !Integer }
-    -- RChar { rchar :: Char }
+        RInt { rint :: !Integer }
       | RText { rtext :: !T.Text }
-    -- RString {rstring :: [Char]}
+      | RUTCTime { rutct :: !UTCTime}
       | RDate { 
                 rdate :: !T.Text
                ,dtformat :: !Text  -- ^ e.g., "DD\/MM\/YYYY"
@@ -769,7 +765,19 @@ data RDataType =
       | RDouble { rdouble :: !Double }
     -- RFloat  { rfloat :: Float }
       | Null
-      deriving (Show,TB.Typeable, Read, Generic)   -- http://stackoverflow.com/questions/6600380/what-is-haskells-data-typeable
+      deriving (Show, Read, Generic, TB.Typeable)   -- http://stackoverflow.com/questions/6600380/what-is-haskells-data-typeable
+
+
+-- deriving instance Generic RDataType 
+
+-- instance Show RDataType where
+--     show _ = "hello" 
+
+-- instance Read RDataType where
+--     readsPrec _ input = 
+--         case input of
+--             'R':'N':'u':'m':rest -> [(read rest), ""]
+--             _ -> []
 
 -- | In order to be able to force full evaluation up to Normal Form (NF)
 -- https://www.fpcomplete.com/blog/2017/09/all-about-strictness
