@@ -36,3 +36,6 @@ Fix:
 ### 0.1.1.1
 - bumped a version number (the least significant) in order to upload on hackage a new version with correct github links
 
+### 0.1.2.0
+- Removed (indirect) dependency to random < 1.2 via package MissingH
+- Added support for UTCTime in RDataType 
