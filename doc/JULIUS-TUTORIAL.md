@@ -58,7 +58,7 @@ In its most basic form a Julius expression looks like this:
     EtlMapStart :-> <etl operation> :-> ... :-> <etl operation>
 
 The `:->` connector is left associative because a Julius expression is evaluated from left to right (or from top to bottom). Essentially `:->` is a data constructor of the `ETLMappingExpr` data type , which receives two input parameters (check out the documentation of the Etl.Julius module in the DBFunctor package in Hackage - just google "Hackage Etl.Julius").
-An "etl operation" can be either a *Relational Algebra Expression*, or a *Column Mapping* (i.e,. a column-level transformation). A Relational Algebra is a sequence of relational algebra operations acting on some input RTable(s). A Column Mapping is a transformation a the column-level where one or more new columns are created based on ore or more existing ones.We explain both concepts in the following paragraphs. 
+An "etl operation" can be either a *Relational Algebra Expression*, or a *Column Mapping* (i.e,. a column-level transformation). A Relational Algebra is a sequence of relational algebra operations acting on some input RTable(s). A Column Mapping is a transformation at the column-level where one or more new columns are created based on one or more existing ones. We explain both concepts in the following paragraphs. 
 A Relational Algebra expression in Julius EDSL begins with an `EtlR $` notation (after "$" follow the relational algebra operations), while a column mapping begins with `EtlC $`. So, a Julius expression essentially looks like this:
 ```
 EtlMapStart :-> (EtlX $ ...) :-> (EtlX $ ...) :-> ... (EtlX $ ...)
@@ -75,12 +75,12 @@ In order to create an RTable from your data (i.e., load your data into memory in
 ```haskell
     toRTable :: (RTabular a) => RTableMData -> a -> RTable
 ```
-`toRTable` is a method of the `RTabular` type class, which resides in the RTable.Core module of the DBFunctor package. So, if your data are loaded in a data type `a` , which is an instance of the `RTabular` type class, then the only thing you have to do, is to call `toRTable`, in order to get a new RTable loaded with your data. Of course `toRTable` also requires as input the necessary RTable metadata (`RTableMData`), which define the RTable's columns and corresponding data types (similar to an SQL `CREATE TABLE`DDL statement).
+`toRTable` is a method of the `RTabular` type class, which resides in the RTable. Core module of the DBFunctor package. So, if your data are loaded in a data type `a` , which is an instance of the `RTabular` type class, then the only thing you have to do, is to call `toRTable`, in order to get a new RTable loaded with your data. Of course `toRTable` also requires as input the necessary RTable metadata (`RTableMData`), which define the RTable's columns and corresponding data types (similar to an SQL `CREATE TABLE` DDL statement).
 
 For example, assume we have a csv file "mydata.csv" with a data set that we want to convert into an RTable, in order to be able to process it with some Julius expression.
-The first step is to read the csv file into some data type `a` that is an instance of the `RTabular` type class. In module, RTable.Data.CSV of the DBfunctor package, we have defined data type `CSV` to represent a CSV file and have made it an instance of `RTabular`. So the only thing you have to do is:
+The first step is to read the csv file into some data type `a` that is an instance of the `RTabular` type class. In module, `RTable.Data.CSV` of the DBfunctor package, we have defined data type `CSV` to represent a CSV file and have made it an instance of `RTabular`. So the only thing you have to do is:
 1. Read the csv file from disk into the CSV data type
-2. Define the RTable metadata (i.e., its columns and corresponding data types) using function `createRTableMData` exported from the Etl.Julius module of the DBFunctor package.
+2. Define the RTable metadata (i.e., its columns and corresponding data types) using function `createRTableMData` exported from the `Etl.Julius` module of the DBFunctor package.
 ```haskell
 createRTableMData :: 
 	(RTableName, [(ColumnName, ColumnDType)])	 
